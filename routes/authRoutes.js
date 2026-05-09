@@ -10,13 +10,22 @@ const {
     registerUser,
     loginUser,
     getAllUsers,
-    searchUsers
+    searchUsers,
+    updateProfile,uploadPhoto, deletePhoto, reorderPhotos
 } = require('../controllers/authController');
+
+// routes/authRoutes.js
+const { upload } = require('../config/cloudinary');
+
+router.post  ('/photos',         protect, upload.single('photo'), uploadPhoto);
+router.delete('/photos',         protect, deletePhoto);
+router.put   ('/photos/reorder', protect, reorderPhotos);
 
 router.post('/signup', registerUser);
 router.post('/login', loginUser);
 router.get('/users', getAllUsers);
 router.get('/search', searchUsers);
+router.put('/me',      protect, updateProfile);
 
 // routes/authRoutes.js
 router.get('/me', protect, async (req, res) => {

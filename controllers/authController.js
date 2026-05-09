@@ -380,11 +380,98 @@
 
             };
 
+            // controllers/authController.js — add this
+
+const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user._id;
+
+        const {
+            name, phoneNumber, gender, dateOfBirth,
+            religion, motherTongue, maritalStatus,
+            education, occupation, city, state
+        } = req.body;
+
+        const updated = await User.findByIdAndUpdate(
+            userId,
+            {
+                name, phoneNumber, gender, dateOfBirth,
+                religion, motherTongue, maritalStatus,
+                education, occupation, city, state
+            },
+            { new: true, runValidators: true }
+        ).select('-password');
+
+        res.status(200).json({ success: true, user: updated });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+// controllers/authController.js — add these
+
+const { cloudinary } = require('../config/cloudinary');
+
+// Upload a photo — adds to photos array
+const uploadPhoto = async (req, res) => {
+    try {
+
+        console.log("upload potosss hittt")
+        if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
+
+        const user = await User.findById(req.user._id);
+        user.photos.push(req.file.path);   // Cloudinary URL string
+        await user.save();
+
+        res.status(200).json({ success: true, photos: user.photos });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Delete a photo by URL
+const deletePhoto = async (req, res) => {
+    try {
+        const { photoUrl } = req.body;
+        const user = await User.findById(req.user._id);
+
+        // Extract public_id from Cloudinary URL and delete from cloud
+        const publicId = photoUrl.split('/').slice(-2).join('/').split('.')[0];
+        await cloudinary.uploader.destroy(publicId);
+
+        user.photos = user.photos.filter(p => p !== photoUrl);
+        await user.save();
+
+        res.status(200).json({ success: true, photos: user.photos });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Reorder photos — index 0 becomes profile pic
+const reorderPhotos = async (req, res) => {
+    try {
+        const { photos } = req.body;  // full reordered array of URLs
+        const user = await User.findById(req.user._id);
+        user.photos = photos;
+        await user.save();
+        res.status(200).json({ success: true, photos: user.photos });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+
+
 
 
             module.exports = {
                 registerUser,
                 loginUser,
                 getAllUsers,
-                searchUsers
+                searchUsers,
+                updateProfile,
+                uploadPhoto, deletePhoto, reorderPhotos
             };
