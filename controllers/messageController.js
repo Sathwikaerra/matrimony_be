@@ -126,7 +126,20 @@ const getRecentChats = async (req, res) => {
                     },
                     lastMessage: { $first: '$message'   },
                     lastTime:    { $first: '$createdAt' },
-                    isRead:      { $first: '$isRead'    },
+                    unreadCount: {
+                        $sum: {
+                            $cond: [
+                                { 
+                                    $and: [
+                                        { $eq: ['$receiverId', userObjectId] },
+                                        { $ne: ['$isRead', true] }
+                                    ]
+                                },
+                                1,
+                                0
+                            ]
+                        }
+                    }
                 },
             },
             { $sort: { lastTime: -1 } },
@@ -145,7 +158,7 @@ const getRecentChats = async (req, res) => {
                     _id:         0,
                     lastMessage: 1,
                     lastTime:    1,
-                    isRead:      1,
+                    unreadCount: 1,
                     user: {
                         _id:        '$userInfo._id',
                         name:       '$userInfo.name',
