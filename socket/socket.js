@@ -26,25 +26,30 @@ const initSocket = (httpServer) => {
                 return;
             }
             
-            // Map userId to this socket
-            socket.userId = userId; 
-            userSocketMap[userId] = socket.id; // Still keep for simple lookup if needed
+            const uidStr = userId.toString();
+            userSocketMap[uidStr] = socket.id; // Map userId to this specific socket
+            socket.join(uidStr); // ✅ Join a room named after userId
             
-            socket.join(userId.toString()); // ✅ Join a room named after userId
+            // 1. Send current online list to the user who just registered
+            socket.emit('onlineUsers', getOnlineUsers());
             
+            // 2. Notify everyone else
             io.emit('onlineUsers', getOnlineUsers());
-            console.log(`✅ User ${userId} registered (socket ${socket.id}) and joined room`);
+            
+            console.log(`✅ User ${uidStr} registered (socket ${socket.id}) and joined room`);
+            console.log('🟢 Online users now:', getOnlineUsers());
+        });
+
+        socket.on('getOnlineUsers', () => {
+            socket.emit('onlineUsers', getOnlineUsers());
         });
 
         // ── Send message ───────────────────────────────────────────────────
         socket.on('sendMessage', (data) => {
             const receiverId = data.receiverId?.toString();
-            console.log(`📨 sendMessage → receiverId: ${receiverId}`);
-            
             if (receiverId) {
-                // Emit to ALL sockets of the receiver using their room
                 io.to(receiverId).emit('receiveMessage', data);
-                console.log('✅ Message delivered to room', receiverId);
+                console.log(`📨 Message sent to room: ${receiverId}`);
             }
         });
 
@@ -70,19 +75,16 @@ const initSocket = (httpServer) => {
 
         // ── Disconnect ─────────────────────────────────────────────────────
         socket.on('disconnect', () => {
-            const userId = socket.userId;
+            // Find which user this socket belonged to
+            const userId = Object.keys(userSocketMap).find(
+                (key) => userSocketMap[key] === socket.id
+            );
+            
             if (userId) {
-                // Check if this user has any other sockets still connected to their room
-                const remainingSockets = io.sockets.adapter.rooms.get(userId.toString());
-                
-                if (!remainingSockets || remainingSockets.size === 0) {
-                    // No more active sessions for this user
-                    delete userSocketMap[userId];
-                    io.emit('onlineUsers', getOnlineUsers());
-                    console.log(`🔴 User ${userId} is now offline`);
-                } else {
-                    console.log(`ℹ️  User ${userId} disconnected one tab, but remains online`);
-                }
+                delete userSocketMap[userId];
+                io.emit('onlineUsers', getOnlineUsers());
+                console.log(`🔴 User ${userId} disconnected`);
+                console.log('🟢 Online users now:', getOnlineUsers());
             }
         });
     });
