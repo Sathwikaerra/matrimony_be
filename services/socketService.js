@@ -40,10 +40,18 @@ class SocketService {
         try {
             const io = getIO();
             // Emit only to the receiver's room
+            // Emit specific event for data sync
             io.to(connection.receiver.toString()).emit('connection-request-received', {
                 connectionId: connection._id,
                 senderId: connection.sender,
                 status: connection.status,
+                timestamp: new Date()
+            });
+            // Emit generic notification for toast
+            io.to(connection.receiver.toString()).emit('notificationReceived', {
+                type: 'interest',
+                message: `You received a new connection request`,
+                senderId: connection.sender,
                 timestamp: new Date()
             });
         } catch (error) {
@@ -59,10 +67,18 @@ class SocketService {
         try {
             const io = getIO();
             // Emit only to the sender's room
+            // Emit specific event for data sync
             io.to(connection.sender.toString()).emit('connection-request-accepted', {
                 connectionId: connection._id,
                 receiverId: connection.receiver,
                 status: connection.status,
+                timestamp: new Date()
+            });
+            // Emit generic notification for toast
+            io.to(connection.sender.toString()).emit('notificationReceived', {
+                type: 'match',
+                message: `Your connection request was accepted!`,
+                senderId: connection.receiver,
                 timestamp: new Date()
             });
         } catch (error) {
