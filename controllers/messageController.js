@@ -1,7 +1,8 @@
-// controllers/messageController.js
+// controllers/messageController.js  (UPDATED — push notifications added)
 const mongoose = require('mongoose');
 const Message  = require('../models/Message');
 const User     = require('../models/User');
+const { notifyNewMessage } = require('../services/pushService'); // ← ADD THIS
 
 // =========================
 // SEND MESSAGE
@@ -22,6 +23,15 @@ const sendMessage = async (req, res) => {
             receiverId,
             message: message.trim(),
         });
+
+        // ── Push notification ─────────────────────────────────────────────
+        // Fire-and-forget (don't await — don't block the response)
+        User.findById(senderId).then((sender) => {
+            if (sender) {
+                notifyNewMessage(receiverId, sender.name, senderId, message.trim());
+            }
+        });
+        // ──────────────────────────────────────────────────────────────────
 
         res.status(201).json({ success: true, messageData: newMessage });
     } catch (error) {
@@ -51,7 +61,6 @@ const getMessages = async (req, res) => {
             ],
         }).sort({ createdAt: 1 });
 
-        // Mark received messages as read
         await Message.updateMany(
             { senderId: rId, receiverId: sId, isRead: { $ne: true } },
             { isRead: true }
@@ -70,7 +79,6 @@ const getMessages = async (req, res) => {
 const deleteMessage = async (req, res) => {
     try {
         const { msgId } = req.params;
-
         const msg = await Message.findByIdAndDelete(msgId);
 
         if (!msg) {
@@ -85,13 +93,11 @@ const deleteMessage = async (req, res) => {
 };
 
 // =========================
-// RECENT CHATS  ← fixed
+// RECENT CHATS
 // =========================
 const getRecentChats = async (req, res) => {
     try {
         const { senderId } = req.params;
-
-        console.log("hittttt recent")
 
         if (!mongoose.Types.ObjectId.isValid(senderId)) {
             return res.status(400).json({ success: false, message: 'Invalid userId' });
@@ -100,7 +106,6 @@ const getRecentChats = async (req, res) => {
         const userObjectId = new mongoose.Types.ObjectId(senderId);
 
         const recentChats = await Message.aggregate([
-            // 1. Only messages that involve this user
             {
                 $match: {
                     $or: [
@@ -109,9 +114,7 @@ const getRecentChats = async (req, res) => {
                     ],
                 },
             },
-            // 2. Newest first before grouping
             { $sort: { createdAt: -1 } },
-            // 3. One doc per conversation (keyed by the OTHER person)
             {
                 $group: {
                     _id: {
@@ -128,7 +131,6 @@ const getRecentChats = async (req, res) => {
             },
             { $sort: { lastTime: -1 } },
             { $limit: 20 },
-            // 4. Join user info
             {
                 $lookup: {
                     from:         'users',
@@ -138,7 +140,6 @@ const getRecentChats = async (req, res) => {
                 },
             },
             { $unwind: '$userInfo' },
-            // 5. Shape output
             {
                 $project: {
                     _id:         0,
@@ -159,7 +160,7 @@ const getRecentChats = async (req, res) => {
         res.status(200).json({
             success: true,
             chats: recentChats,
-            users: recentChats.map((c) => c.user), // Messages.jsx uses res.data.users
+            users: recentChats.map((c) => c.user),
         });
 
     } catch (error) {

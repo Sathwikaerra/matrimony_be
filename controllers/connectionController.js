@@ -1,14 +1,16 @@
+// controllers/connectionController.js  (UPDATED — push notifications added)
 const Connection = require('../models/Connection');
 const User = require('../models/User');
 const SocketService = require('../services/socketService');
+const {
+    notifyInterestReceived,
+    notifyNewMatch,
+} = require('../services/pushService'); // ← ADD THIS
 
-
-// controllers/connectionController.js — add this
 
 const getDeclinedRequests = async (req, res) => {
     try {
         const userId = req.user._id;
-
         const requests = await Connection.find({
             receiver: userId,
             status: 'rejected'
@@ -19,8 +21,6 @@ const getDeclinedRequests = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-
-
 
 // =========================
 // SEND CONNECTION REQUEST
@@ -39,19 +39,15 @@ const sendRequest = async (req, res) => {
 
         const receiver = await User.findById(receiverId);
         if (!receiver) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
+            return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        // Only block if already pending or accepted
         const existing = await Connection.findOne({
             $or: [
                 { sender: senderId, receiver: receiverId },
                 { sender: receiverId, receiver: senderId }
             ],
-            status: { $in: ['pending', 'accepted'] }  // ← only these block
+            status: { $in: ['pending', 'accepted'] }
         });
 
         if (existing) {
@@ -61,7 +57,6 @@ const sendRequest = async (req, res) => {
             });
         }
 
-        // If old rejected/withdrawn doc exists, reuse it instead of creating duplicate
         const stale = await Connection.findOneAndUpdate(
             {
                 $or: [
@@ -80,6 +75,13 @@ const sendRequest = async (req, res) => {
         });
 
         SocketService.emitConnectionRequest(connection);
+
+        // ── Push notification ─────────────────────────────────────────────
+        const sender = await User.findById(senderId).select('name');
+        if (sender) {
+            notifyInterestReceived(receiverId, sender.name, senderId.toString());
+        }
+        // ──────────────────────────────────────────────────────────────────
 
         res.status(201).json({
             success: true,
@@ -107,7 +109,6 @@ const acceptRequest = async (req, res) => {
             return res.status(404).json({ success: false, message: "Request not found" });
         }
 
-        // Only the receiver can accept
         if (connection.receiver.toString() !== userId.toString()) {
             return res.status(403).json({ success: false, message: "Not authorized" });
         }
@@ -124,11 +125,19 @@ const acceptRequest = async (req, res) => {
 
         SocketService.emitConnectionAccepted(connection);
 
-        res.status(200).json({
-            success: true,
-            message: "Connection accepted",
-            connection
-        });
+        // ── Push notification ─────────────────────────────────────────────
+        // Notify the original sender that their request was accepted (= new match)
+        const acceptor = await User.findById(userId).select('name');
+        if (acceptor) {
+            notifyNewMatch(
+                connection.sender.toString(),
+                acceptor.name,
+                userId.toString()
+            );
+        }
+        // ──────────────────────────────────────────────────────────────────
+
+        res.status(200).json({ success: true, message: "Connection accepted", connection });
 
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -144,31 +153,14 @@ const rejectRequest = async (req, res) => {
         const { connectionId } = req.params;
 
         const connection = await Connection.findById(connectionId);
-
-        if (!connection) {
-            return res.status(404).json({ success: false, message: "Request not found" });
-        }
-
-        if (connection.receiver.toString() !== userId.toString()) {
-            return res.status(403).json({ success: false, message: "Not authorized" });
-        }
-
-        if (connection.status !== 'pending') {
-            return res.status(400).json({
-                success: false,
-                message: `Request is already ${connection.status}`
-            });
-        }
+        if (!connection) return res.status(404).json({ success: false, message: "Request not found" });
+        if (connection.receiver.toString() !== userId.toString()) return res.status(403).json({ success: false, message: "Not authorized" });
+        if (connection.status !== 'pending') return res.status(400).json({ success: false, message: `Request is already ${connection.status}` });
 
         connection.status = 'rejected';
         await connection.save();
 
-        res.status(200).json({
-            success: true,
-            message: "Connection rejected",
-            connection
-        });
-
+        res.status(200).json({ success: true, message: "Connection rejected", connection });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -183,32 +175,14 @@ const withdrawRequest = async (req, res) => {
         const { connectionId } = req.params;
 
         const connection = await Connection.findById(connectionId);
-
-        if (!connection) {
-            return res.status(404).json({ success: false, message: "Request not found" });
-        }
-
-        // Only sender can withdraw
-        if (connection.sender.toString() !== userId.toString()) {
-            return res.status(403).json({ success: false, message: "Not authorized" });
-        }
-
-        if (connection.status !== 'pending') {
-            return res.status(400).json({
-                success: false,
-                message: "Only pending requests can be withdrawn"
-            });
-        }
+        if (!connection) return res.status(404).json({ success: false, message: "Request not found" });
+        if (connection.sender.toString() !== userId.toString()) return res.status(403).json({ success: false, message: "Not authorized" });
+        if (connection.status !== 'pending') return res.status(400).json({ success: false, message: "Only pending requests can be withdrawn" });
 
         connection.status = 'withdrawn';
         await connection.save();
 
-        res.status(200).json({
-            success: true,
-            message: "Request withdrawn",
-            connection
-        });
-
+        res.status(200).json({ success: true, message: "Request withdrawn", connection });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -220,18 +194,9 @@ const withdrawRequest = async (req, res) => {
 const getPendingRequests = async (req, res) => {
     try {
         const userId = req.user._id;
-
-        const requests = await Connection.find({
-            receiver: userId,
-            status: 'pending'
-        }).populate('sender', 'name email photos city occupation');
-
-        res.status(200).json({
-            success: true,
-            count: requests.length,
-            requests
-        });
-
+        const requests = await Connection.find({ receiver: userId, status: 'pending' })
+            .populate('sender', 'name email photos city occupation');
+        res.status(200).json({ success: true, count: requests.length, requests });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -243,18 +208,11 @@ const getPendingRequests = async (req, res) => {
 const getSentRequests = async (req, res) => {
     try {
         const userId = req.user._id;
-
         const requests = await Connection.find({
             sender: userId,
             status: { $in: ['pending', 'accepted', 'rejected'] }
         }).populate('receiver', 'name email photos city occupation');
-
-        res.status(200).json({
-            success: true,
-            count: requests.length,
-            requests
-        });
-
+        res.status(200).json({ success: true, count: requests.length, requests });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -266,18 +224,13 @@ const getSentRequests = async (req, res) => {
 const getMyConnections = async (req, res) => {
     try {
         const userId = req.user._id;
-
         const connections = await Connection.find({
-            $or: [
-                { sender: userId },
-                { receiver: userId }
-            ],
+            $or: [{ sender: userId }, { receiver: userId }],
             status: 'accepted'
         })
         .populate('sender', 'name email photos city occupation')
         .populate('receiver', 'name email photos city occupation');
 
-        // Return the "other" user in each connection
         const contacts = connections.map(conn => {
             const isSender = conn.sender._id.toString() === userId.toString();
             return {
@@ -287,12 +240,7 @@ const getMyConnections = async (req, res) => {
             };
         });
 
-        res.status(200).json({
-            success: true,
-            count: contacts.length,
-            connections: contacts
-        });
-
+        res.status(200).json({ success: true, count: contacts.length, connections: contacts });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

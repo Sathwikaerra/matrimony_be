@@ -1,387 +1,190 @@
-            const User = require('../models/User');
-
-            const generateToken = require('../utils/generateToken');
-
-            const SocketService = require('../services/socketService');
-
-
-
-            // =========================
-            // SIGNUP USER
-            // =========================
-
-            const registerUser = async (req, res) => {
-
-                console.log("hirtttt signup")
-
-                try {
-
-                    const {
-                            name,
-                            email,
-                            password
-                    } = req.body;
-
-
-
-                    // Check empty fields
-                    if (!name || !email || !password) {
-
-                        return res.status(400).json({
-                            success: false,
-                            message: "Please fill all fields"   
-                        });
-
-                    }
-
-
-
-                    // Check user already exists
-                    const existingUser = await User.findOne({ email });
-
-                    if (existingUser) {
-
-                        return res.status(400).json({
-                            success: false,
-                            message: "User already exists"
-                        });
-
-                    }
-
-
-
-                    // Create user
-                    const user = await User.create({
-                        name,
-                        email,
-                        password
-                    });
-
-
-
-                    // Generate JWT Token
-                    const token = generateToken(user._id);
-
-
-
-                    // Socket Event
-                    SocketService.emitNewUserRegistration(user);
-
-
-
-                    // Response
-                    res.status(201).json({
-
-                        success: true,
-
-                        message: "Signup Successful",
-
-                        token,
-
-                        user: {
-                            id: user._id,
-                            name: user.name,
-                            email: user.email
-                        }
-
-                    });
-
-                } catch (error) {
-
-                    res.status(500).json({
-
-                        success: false,
-
-                        message: error.message
-
-                    });
-
-                }
-
-            };
-
-
-
-            // =========================
-            // LOGIN USER
-            // =========================
-
-            // =========================
-            // LOGIN USER
-            // =========================
-
-            const loginUser = async (req, res) => {
-
-                try {
-
-                    const {
-                        email,
-                        password
-                    } = req.body;
-
-
-
-                    // =========================
-                    // VALIDATION
-                    // =========================
-
-                    if (!email || !password) {
-
-                        return res.status(400).json({
-
-                            success: false,
-
-                            message: "Please fill all fields"
-
-                        });
-
-                    }
-
-
-
-                    // =========================
-                    // FIND USER
-                    // =========================
-
-                    const user = await User
-                        .findOne({ email })
-                        .select('+password');
-
-
-
-                    // =========================
-                    // USER NOT FOUND
-                    // =========================
-
-                    if (!user) {
-
-                        return res.status(401).json({
-
-                            success: false,
-
-                            message: "Invalid Email"
-
-                        });
-
-                    }
-
-
-
-                    // =========================
-                    // COMPARE PASSWORD
-                    // =========================
-
-                    const isMatch = await user.comparePassword(
-                        password
-                    );
-
-
-
-                    // =========================
-                    // PASSWORD WRONG
-                    // =========================
-
-                    if (!isMatch) {
-
-                        return res.status(401).json({
-
-                            success: false,
-
-                            message: "Invalid Password"
-
-                        });
-
-                    }
-
-
-
-                    // =========================
-                    // GENERATE JWT TOKEN
-                    // =========================
-
-                    const token = generateToken(user._id);
-
-
-
-                    // =========================
-                    // SOCKET EVENT
-                    // =========================
-
-                    SocketService.emitUserLogin(user);
-
-
-
-                    // =========================
-                    // SUCCESS RESPONSE
-                    // =========================
-
-                    res.status(200).json({
-
-                        success: true,
-
-                        message: "Login Successful",
-
-                        token,
-
-                        user: {
-
-                            id: user._id,
-
-                            name: user.name,
-
-                            email: user.email,
-
-                            photos: user.photos,
-
-                            city: user.city,
-
-                            occupation: user.occupation
-
-                        }
-
-                    });
-
-                } catch (error) {
-
-                    console.log(error);
-
-
-
-                    res.status(500).json({
-
-                        success: false,
-
-                        message: error.message
-
-                    });
-
-                }
-
-            };
-
-            // =========================
-            // GET ALL USERS
-            // =========================
-
-            // GET USERS WITH PAGINATION
-
-            const getAllUsers = async (req, res) => {
-
-                try {
-
-                    // Page Number
-                    const page = Number(req.query.page) || 1;
-
-                    // Limit Per Request
-                    const limit = Number(req.query.limit) || 5;
-
-                    // Skip
-                    const skip = (page - 1) * limit;
-
-
-
-                    // Fetch Users
-                    const users = await User.find()
-                        .skip(skip)
-                        .limit(limit);
-
-
-
-                    // Total Count
-                    const totalUsers = await User.countDocuments();
-
-
-
-                    res.status(200).json({
-
-                        success: true,
-
-                        currentPage: page,
-
-                        totalPages: Math.ceil(
-                            totalUsers / limit
-                        ),
-
-                        totalUsers,
-
-                        users
-
-                    });
-
-                } catch (error) {
-
-                    res.status(500).json({
-
-                        success: false,
-
-                        message: error.message
-
-                    });
-
-                }
-
-            };
-
-            // SEARCH USERS
-
-            const searchUsers = async (req, res) => {
-
-                try {
-
-                    const search = req.query.search || "";
-
-
-
-                    const users = await User.find({
-
-                        $or: [
-
-                            {
-                                name: {
-                                    $regex: search,
-                                    $options: "i"
-                                }
-                            },
-
-                            {
-                                email: {
-                                    $regex: search,
-                                    $options: "i"
-                                }
-                            }
-
-                        ]
-
-                    })
-
-                    .limit(5);
-
-
-
-                    res.status(200).json({
-
-                        success: true,
-
-                        users
-
-                    });
-
-                } catch (error) {
-
-                    res.status(500).json({
-
-                        success: false,
-
-                        message: error.message
-
-                    });
-
-                }
-
-            };
-
-            // controllers/authController.js — add this
-
+const User = require('../models/User');
+const generateToken = require('../utils/generateToken');
+const SocketService = require('../services/socketService');
+const { notifyProfileViewed } = require('../services/pushService'); // ← ADDED
+
+// =========================
+// SIGNUP USER
+// =========================
+const registerUser = async (req, res) => {
+    console.log("hirtttt signup")
+    try {
+        const { name, email, password } = req.body;
+
+        if (!name || !email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Please fill all fields"
+            });
+        }
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({
+                success: false,
+                message: "User already exists"
+            });
+        }
+
+        const user = await User.create({ name, email, password });
+        const token = generateToken(user._id);
+
+        SocketService.emitNewUserRegistration(user);
+
+        res.status(201).json({
+            success: true,
+            message: "Signup Successful",
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// LOGIN USER
+// =========================
+const loginUser = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Please fill all fields"
+            });
+        }
+
+        const user = await User.findOne({ email }).select('+password');
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid Email"
+            });
+        }
+
+        const isMatch = await user.comparePassword(password);
+
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid Password"
+            });
+        }
+
+        const token = generateToken(user._id);
+
+        SocketService.emitUserLogin(user);
+
+        res.status(200).json({
+            success: true,
+            message: "Login Successful",
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                photos: user.photos,
+                city: user.city,
+                occupation: user.occupation
+            }
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// GET ALL USERS (with pagination)
+// =========================
+const getAllUsers = async (req, res) => {
+    try {
+        const page  = Number(req.query.page)  || 1;
+        const limit = Number(req.query.limit) || 5;
+        const skip  = (page - 1) * limit;
+
+        const users      = await User.find().skip(skip).limit(limit);
+        const totalUsers = await User.countDocuments();
+
+        res.status(200).json({
+            success: true,
+            currentPage: page,
+            totalPages: Math.ceil(totalUsers / limit),
+            totalUsers,
+            users
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// SEARCH USERS
+// =========================
+const searchUsers = async (req, res) => {
+    try {
+        const search = req.query.search || "";
+
+        const users = await User.find({
+            $or: [
+                { name:  { $regex: search, $options: "i" } },
+                { email: { $regex: search, $options: "i" } }
+            ]
+        }).limit(5);
+
+        res.status(200).json({ success: true, users });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// GET SINGLE PROFILE  ← NEW
+// Notifies the profile owner when someone else views their profile
+// =========================
+const getProfile = async (req, res) => {
+    try {
+        const { profileId } = req.params;
+
+        const profile = await User.findById(profileId).select('-password');
+
+        if (!profile) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        // ── Push notification: tell owner their profile was viewed ──────
+        // Only fires when a logged-in user views someone else's profile
+        if (req.user && req.user._id.toString() !== profileId) {
+            const viewer = await User.findById(req.user._id).select('name');
+            if (viewer) {
+                notifyProfileViewed(
+                    profileId,                  // profile owner to notify
+                    viewer.name,                // "X viewed your profile"
+                    req.user._id.toString()     // click → go to viewer's profile
+                );
+            }
+        }
+        // ────────────────────────────────────────────────────────────────
+
+        res.status(200).json({ success: true, profile });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// UPDATE PROFILE
+// =========================
 const updateProfile = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -408,20 +211,18 @@ const updateProfile = async (req, res) => {
     }
 };
 
-
-// controllers/authController.js — add these
-
+// =========================
+// PHOTO MANAGEMENT
+// =========================
 const { cloudinary } = require('../config/cloudinary');
 
-// Upload a photo — adds to photos array
 const uploadPhoto = async (req, res) => {
     try {
-
-        console.log("upload potosss hittt")
+        console.log("upload potosss hittt");
         if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
 
         const user = await User.findById(req.user._id);
-        user.photos.push(req.file.path);   // Cloudinary URL string
+        user.photos.push(req.file.path);
         await user.save();
 
         res.status(200).json({ success: true, photos: user.photos });
@@ -430,13 +231,11 @@ const uploadPhoto = async (req, res) => {
     }
 };
 
-// Delete a photo by URL
 const deletePhoto = async (req, res) => {
     try {
         const { photoUrl } = req.body;
         const user = await User.findById(req.user._id);
 
-        // Extract public_id from Cloudinary URL and delete from cloud
         const publicId = photoUrl.split('/').slice(-2).join('/').split('.')[0];
         await cloudinary.uploader.destroy(publicId);
 
@@ -449,10 +248,9 @@ const deletePhoto = async (req, res) => {
     }
 };
 
-// Reorder photos — index 0 becomes profile pic
 const reorderPhotos = async (req, res) => {
     try {
-        const { photos } = req.body;  // full reordered array of URLs
+        const { photos } = req.body;
         const user = await User.findById(req.user._id);
         user.photos = photos;
         await user.save();
@@ -462,16 +260,14 @@ const reorderPhotos = async (req, res) => {
     }
 };
 
-
-
-
-
-
-            module.exports = {
-                registerUser,
-                loginUser,
-                getAllUsers,
-                searchUsers,
-                updateProfile,
-                uploadPhoto, deletePhoto, reorderPhotos
-            };
+module.exports = {
+    registerUser,
+    loginUser,
+    getAllUsers,
+    searchUsers,
+    getProfile,       // ← NEW — add this to your userRoutes.js too
+    updateProfile,
+    uploadPhoto,
+    deletePhoto,
+    reorderPhotos
+};
