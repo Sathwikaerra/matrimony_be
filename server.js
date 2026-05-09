@@ -10,6 +10,7 @@ const authRoutes = require('./routes/authRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const { initSocket } = require('./socket/socket');
 const connectionRoutes = require('./routes/connectionRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 connectDB();
 
@@ -27,6 +28,7 @@ app.use(express.json());
 app.use('/auth', authRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/connections', connectionRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 
 // =========================

@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const PushSubscription = require('../models/PushSubscription');
-const authMiddleware = require('../middleware/auth'); // your existing JWT middleware
+const authMiddleware = require('../middleware/authMiddleware'); // corrected filename
 
 // POST /api/notifications/subscribe
 router.post('/subscribe', authMiddleware, async (req, res) => {
