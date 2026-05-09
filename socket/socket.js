@@ -26,8 +26,9 @@ const initSocket = (httpServer) => {
                 return;
             }
             userSocketMap[userId] = socket.id;
+            socket.join(userId.toString()); // ✅ Join a room named after userId
             io.emit('onlineUsers', getOnlineUsers());
-            console.log(`✅ User ${userId} registered (socket ${socket.id})`);
+            console.log(`✅ User ${userId} registered (socket ${socket.id}) and joined room`);
             console.log('🟢 Online users now:', getOnlineUsers());
         });
 

@@ -490,8 +490,11 @@ const likeUser = async (req, res) => {
         // ─── LIKE ONLY ONCE ───────────────────────
 
         targetUser.likes.push(currentUserId);
-
         await targetUser.save();
+
+        // ── Real-time notification ──────────────────────────────────────────
+        SocketService.emitLikeNotification(req.user, targetUserId);
+        // ──────────────────────────────────────────────────────────────────
 
         res.status(200).json({
             success: true,
@@ -539,6 +542,10 @@ const addComment = async (req, res) => {
     });
 
     await targetUser.save();
+
+    // ── Real-time notification ──────────────────────────────────────────
+    SocketService.emitCommentNotification(req.user, targetUserId, text);
+    // ──────────────────────────────────────────────────────────────────
 
     const updatedUser = await User.findById(targetUserId)
       .populate('comments.user', 'name photos');

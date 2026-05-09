@@ -70,6 +70,40 @@ class SocketService {
         }
     }
 
+    // =========================
+    // LIKE NOTIFICATION
+    // =========================
+    static emitLikeNotification(sender, receiverId) {
+        try {
+            const io = getIO();
+            io.to(receiverId.toString()).emit('notificationReceived', {
+                type: 'like',
+                message: `${sender.name} liked your profile`,
+                senderId: sender._id,
+                timestamp: new Date()
+            });
+        } catch (error) {
+            console.error('Socket emission error (like):', error.message);
+        }
+    }
+
+    // =========================
+    // COMMENT NOTIFICATION
+    // =========================
+    static emitCommentNotification(sender, receiverId, commentText) {
+        try {
+            const io = getIO();
+            io.to(receiverId.toString()).emit('notificationReceived', {
+                type: 'comment',
+                message: `${sender.name} commented: "${commentText.length > 30 ? commentText.slice(0, 30) + '...' : commentText}"`,
+                senderId: sender._id,
+                timestamp: new Date()
+            });
+        } catch (error) {
+            console.error('Socket emission error (comment):', error.message);
+        }
+    }
+
 }
 
 module.exports = SocketService;
