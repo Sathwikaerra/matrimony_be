@@ -10,67 +10,67 @@ const bcrypt = require("bcryptjs");
 
 const registerUser = async (req, res) => {
 
-    try {
+  try {
 
-        const { name, email, password } = req.body;
+    const { name, email, password } = req.body;
 
-        if (!name || !email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: "Please fill all fields"
-            });
-        }
-
-        // Check existing user
-        const existingUser = await User.findOne({ email });
-
-        if (existingUser) {
-            return res.status(400).json({
-                success: false,
-                message: "User already exists"
-            });
-        }
-
-        // ─── HASH PASSWORD ─────────────────────
-
-        const salt = await bcrypt.genSalt(10);
-
-        const hashedPassword = await bcrypt.hash(
-            password,
-            salt
-        );
-
-        // ─── CREATE USER ───────────────────────
-
-        const user = await User.create({
-            name,
-            email,
-            password: hashedPassword
-        });
-
-        const token = generateToken(user._id);
-
-        SocketService.emitNewUserRegistration(user);
-
-        res.status(201).json({
-            success: true,
-            message: "Signup Successful",
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email
-            }
-        });
-
-    } catch (error) {
-
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Please fill all fields"
+      });
     }
-}; 
+
+    // Check existing user
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists"
+      });
+    }
+
+    // ─── HASH PASSWORD ─────────────────────
+
+    const salt = await bcrypt.genSalt(10);
+
+    const hashedPassword = await bcrypt.hash(
+      password,
+      salt
+    );
+
+    // ─── CREATE USER ───────────────────────
+
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword
+    });
+
+    const token = generateToken(user._id);
+
+    SocketService.emitNewUserRegistration(user);
+
+    res.status(201).json({
+      success: true,
+      message: "Signup Successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email
+      }
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 
 // =========================
 // LOGIN USER
@@ -79,68 +79,68 @@ const registerUser = async (req, res) => {
 
 const loginUser = async (req, res) => {
 
-    try {
+  try {
 
-        const { email, password } = req.body;
+    const { email, password } = req.body;
 
-        if (!email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: "Please fill all fields"
-            });
-        }
-
-        // Get user with password
-        const user = await User.findOne({ email })
-            .select("+password");
-
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: "Invalid Email"
-            });
-        }
-
-        // Compare hashed password
-        const isMatch = await bcrypt.compare(
-            password,
-            user.password
-        );
-
-        if (!isMatch) {
-            return res.status(401).json({
-                success: false,
-                message: "Invalid Password"
-            });
-        }
-
-        const token = generateToken(user._id);
-
-        SocketService.emitUserLogin(user);
-
-        res.status(200).json({
-            success: true,
-            message: "Login Successful",
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                photos: user.photos,
-                city: user.city,
-                occupation: user.occupation
-            }
-        });
-
-    } catch (error) {
-
-        console.log(error);
-
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Please fill all fields"
+      });
     }
+
+    // Get user with password
+    const user = await User.findOne({ email })
+      .select("+password");
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Email"
+      });
+    }
+
+    // Compare hashed password
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Password"
+      });
+    }
+
+    const token = generateToken(user._id);
+
+    SocketService.emitUserLogin(user);
+
+    res.status(200).json({
+      success: true,
+      message: "Login Successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        photos: user.photos,
+        city: user.city,
+        occupation: user.occupation
+      }
+    });
+
+  } catch (error) {
+
+    console.log(error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
 // =========================
@@ -291,22 +291,23 @@ const getAllUsers = async (req, res) => {
 // SEARCH USERS
 // =========================
 const searchUsers = async (req, res) => {
-    try {
+  try {
 
-        console.log("search hitttt")
-        const search = req.query.search || "";
+    console.log("search hitttt")
+    const search = req.query.search || "";
 
-        const users = await User.find({
-            $or: [
-                { name:  { $regex: search, $options: "i" } },
-                { email: { $regex: search, $options: "i" } }
-            ]
-        }).limit(5);
+    const users = await User.find({
+      _id: { $ne: req.user?._id },
+      $or: [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } }
+      ]
+    }).limit(5);
 
-        res.status(200).json({ success: true, users });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.status(200).json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 // =========================
@@ -314,67 +315,67 @@ const searchUsers = async (req, res) => {
 // Notifies the profile owner when someone else views their profile
 // =========================
 const getProfile = async (req, res) => {
-    try {
-       const { id: profileId } = req.params;  // rename id → profileId inside controller
+  try {
+    const { id: profileId } = req.params;  // rename id → profileId inside controller
 
-        console.log("search uer hitttttttttttttt")
+    console.log("search uer hitttttttttttttt")
 
-        const profile = await User.findById(profileId).select('-password');
+    const profile = await User.findById(profileId).select('-password');
 
-        if (!profile) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
-        }
-
-        // ── Push notification: tell owner their profile was viewed ──────
-        // Only fires when a logged-in user views someone else's profile
-        if (req.user && req.user._id.toString() !== profileId) {
-            const viewer = await User.findById(req.user._id).select('name');
-            if (viewer) {
-                notifyProfileViewed(
-                    profileId,                  // profile owner to notify
-                    viewer.name,                // "X viewed your profile"
-                    req.user._id.toString()     // click → go to viewer's profile
-                );
-            }
-        }
-        // ────────────────────────────────────────────────────────────────
-
-        res.status(200).json({ success: true, profile });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
+
+    // ── Push notification: tell owner their profile was viewed ──────
+    // Only fires when a logged-in user views someone else's profile
+    if (req.user && req.user._id.toString() !== profileId) {
+      const viewer = await User.findById(req.user._id).select('name');
+      if (viewer) {
+        notifyProfileViewed(
+          profileId,                  // profile owner to notify
+          viewer.name,                // "X viewed your profile"
+          req.user._id.toString()     // click → go to viewer's profile
+        );
+      }
+    }
+    // ────────────────────────────────────────────────────────────────
+
+    res.status(200).json({ success: true, profile });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 // =========================
 // UPDATE PROFILE
 // =========================
 const updateProfile = async (req, res) => {
-    try {
-        const userId = req.user._id;
+  try {
+    const userId = req.user._id;
 
-        const {
-            name, phoneNumber, gender, dateOfBirth,
-            religion, motherTongue, maritalStatus,
-            education, occupation, city, state
-        } = req.body;
+    const {
+      name, phoneNumber, gender, dateOfBirth,
+      religion, motherTongue, maritalStatus,
+      education, occupation, city, state
+    } = req.body;
 
-        const updated = await User.findByIdAndUpdate(
-            userId,
-            {
-                name, phoneNumber, gender, dateOfBirth,
-                religion, motherTongue, maritalStatus,
-                education, occupation, city, state
-            },
-            { new: true, runValidators: true }
-        ).select('-password');
+    const updated = await User.findByIdAndUpdate(
+      userId,
+      {
+        name, phoneNumber, gender, dateOfBirth,
+        religion, motherTongue, maritalStatus,
+        education, occupation, city, state
+      },
+      { new: true, runValidators: true }
+    ).select('-password');
 
-        res.status(200).json({ success: true, user: updated });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.status(200).json({ success: true, user: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 // =========================
@@ -383,47 +384,47 @@ const updateProfile = async (req, res) => {
 const { cloudinary } = require('../config/cloudinary');
 
 const uploadPhoto = async (req, res) => {
-    try {
-        console.log("upload potosss hittt");
-        if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
+  try {
+    console.log("upload potosss hittt");
+    if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
 
-        const user = await User.findById(req.user._id);
-        user.photos.push(req.file.path);
-        await user.save();
+    const user = await User.findById(req.user._id);
+    user.photos.push(req.file.path);
+    await user.save();
 
-        res.status(200).json({ success: true, photos: user.photos });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.status(200).json({ success: true, photos: user.photos });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 const deletePhoto = async (req, res) => {
-    try {
-        const { photoUrl } = req.body;
-        const user = await User.findById(req.user._id);
+  try {
+    const { photoUrl } = req.body;
+    const user = await User.findById(req.user._id);
 
-        const publicId = photoUrl.split('/').slice(-2).join('/').split('.')[0];
-        await cloudinary.uploader.destroy(publicId);
+    const publicId = photoUrl.split('/').slice(-2).join('/').split('.')[0];
+    await cloudinary.uploader.destroy(publicId);
 
-        user.photos = user.photos.filter(p => p !== photoUrl);
-        await user.save();
+    user.photos = user.photos.filter(p => p !== photoUrl);
+    await user.save();
 
-        res.status(200).json({ success: true, photos: user.photos });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+    res.status(200).json({ success: true, photos: user.photos });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 const reorderPhotos = async (req, res) => {
-    try {
-        const { photos } = req.body;
-        const user = await User.findById(req.user._id);
-        user.photos = photos;
-        await user.save();
-        res.status(200).json({ success: true, photos: user.photos });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+  try {
+    const { photos } = req.body;
+    const user = await User.findById(req.user._id);
+    user.photos = photos;
+    await user.save();
+    res.status(200).json({ success: true, photos: user.photos });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 
@@ -431,85 +432,85 @@ const reorderPhotos = async (req, res) => {
 
 const likeUser = async (req, res) => {
 
-    try {
+  try {
 
-        const targetUserId = req.params.userId;
+    const targetUserId = req.params.userId;
 
-        const currentUserId = req.user._id;
+    const currentUserId = req.user._id;
 
-        // Cannot like own profile
-        if (
-            targetUserId === currentUserId.toString()
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "You cannot like yourself"
-            });
-        }
+    // Cannot like own profile
+    if (
+      targetUserId === currentUserId.toString()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot like yourself"
+      });
+    }
 
-        const targetUser = await User.findById(
-            targetUserId
+    const targetUser = await User.findById(
+      targetUserId
+    );
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Check already liked
+    const alreadyLiked =
+      targetUser.likes.some(
+        (id) =>
+          id.toString() ===
+          currentUserId.toString()
+      );
+
+    // ─── UNLIKE ───────────────────────────────
+
+    if (alreadyLiked) {
+
+      targetUser.likes =
+        targetUser.likes.filter(
+          (id) =>
+            id.toString() !==
+            currentUserId.toString()
         );
 
-        if (!targetUser) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
-        }
+      await targetUser.save();
 
-        // Check already liked
-        const alreadyLiked =
-            targetUser.likes.some(
-                (id) =>
-                    id.toString() ===
-                    currentUserId.toString()
-            );
-
-        // ─── UNLIKE ───────────────────────────────
-
-        if (alreadyLiked) {
-
-            targetUser.likes =
-                targetUser.likes.filter(
-                    (id) =>
-                        id.toString() !==
-                        currentUserId.toString()
-                );
-
-            await targetUser.save();
-
-            return res.status(200).json({
-                success: true,
-                liked: false,
-                message: "User unliked",
-                likesCount: targetUser.likes.length
-            });
-        }
-
-        // ─── LIKE ONLY ONCE ───────────────────────
-
-        targetUser.likes.push(currentUserId);
-        await targetUser.save();
-
-        // ── Real-time notification ──────────────────────────────────────────
-        SocketService.emitLikeNotification(req.user, targetUserId);
-        // ──────────────────────────────────────────────────────────────────
-
-        res.status(200).json({
-            success: true,
-            liked: true,
-            message: "User liked",
-            likesCount: targetUser.likes.length
-        });
-
-    } catch (error) {
-
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+      return res.status(200).json({
+        success: true,
+        liked: false,
+        message: "User unliked",
+        likesCount: targetUser.likes.length
+      });
     }
+
+    // ─── LIKE ONLY ONCE ───────────────────────
+
+    targetUser.likes.push(currentUserId);
+    await targetUser.save();
+
+    // ── Real-time notification ──────────────────────────────────────────
+    SocketService.emitLikeNotification(req.user, targetUserId);
+    // ──────────────────────────────────────────────────────────────────
+
+    res.status(200).json({
+      success: true,
+      liked: true,
+      message: "User liked",
+      likesCount: targetUser.likes.length
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 };
 
 
@@ -636,17 +637,17 @@ const getUserComments = async (req, res) => {
 };
 
 module.exports = {
-    registerUser,
-    loginUser,
-    getAllUsers,
-    searchUsers,
-    getProfile,       // ← NEW — add this to your userRoutes.js too
-    updateProfile,
-    uploadPhoto,
-    deletePhoto,
-    reorderPhotos,
-    likeUser,
-    addComment,
-    deleteComment,
-    getUserComments
+  registerUser,
+  loginUser,
+  getAllUsers,
+  searchUsers,
+  getProfile,       // ← NEW — add this to your userRoutes.js too
+  updateProfile,
+  uploadPhoto,
+  deletePhoto,
+  reorderPhotos,
+  likeUser,
+  addComment,
+  deleteComment,
+  getUserComments
 };

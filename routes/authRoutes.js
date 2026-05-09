@@ -30,7 +30,7 @@ router.put   ('/photos/reorder', protect, reorderPhotos);
 router.post('/signup', registerUser);
 router.post('/login', loginUser);
 router.get('/users',protect, getAllUsers);
-router.get('/search', searchUsers);
+router.get('/search', protect, searchUsers);
 router.put('/me',      protect, updateProfile);
 router.get('/user/:id', protect, getProfile);
 
