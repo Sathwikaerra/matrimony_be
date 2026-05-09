@@ -1,6 +1,26 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+
+const commentSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+
+    text: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
 const userSchema = new mongoose.Schema({
     name: String,
     email: String,
@@ -23,24 +43,27 @@ const userSchema = new mongoose.Schema({
     occupation: String,
     city: String,
     state: String,
+    // ───────── Likes ─────────
+
+    likes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+
+    // ───────── Comments ─────────
+
+    comments: [commentSchema],
+
     isActive: {
-        type: Boolean,
-        default: true
-    }
-}, {
+      type: Boolean,
+      default: true,
+    },
+  }, {
     timestamps: true
 });
 
-userSchema.pre('save', async function(next) {
-    if (!this.isModified('password')) return next();
 
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-});
-
-userSchema.methods.comparePassword = async function(enteredPassword) {
-    return await bcrypt.compare(enteredPassword, this.password);
-};
 
 module.exports = mongoose.model('User', userSchema);

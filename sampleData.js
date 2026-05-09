@@ -33,229 +33,354 @@ mongoose.connect(process.env.MONGODB_URI)
 // USERS ARRAY
 
 // HIGH QUALITY 50 MATRIMONY USERS
-
 const users = [
 
 {
   name: "Rahul Sharma",
-  email: "rahul1@gmail.com",
-  phoneNumber: "9876543201",
+  email: "rahul@gmail.com",
+  phoneNumber: "9876543210",
   password: "123456",
 
   photos: [
     "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
-    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d",
-    "https://images.unsplash.com/photo-1504593811423-6dd665756598"
+    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d"
   ],
 
   gender: "Male",
-  dateOfBirth: "1998-01-01",
+  dateOfBirth: "1997-05-14",
+
   religion: "Hindu",
   motherTongue: "Hindi",
   maritalStatus: "Never Married",
+
   education: "B.Tech",
   occupation: "Software Engineer",
+
   city: "Hyderabad",
-  state: "Telangana"
+  state: "Telangana",
+
+  bio: "Looking for a caring and understanding life partner.",
+
+  hobbies: ["Travel", "Music", "Gym"],
+  favoriteFoods: ["Biryani", "Pizza"],
+  favoriteColor: "Blue",
+  interests: ["Movies", "Technology", "Fitness"],
+
+  personalityType: "Introvert",
+
+  height: 175,
+  annualIncome: 1200000,
+
+  drinking: "Occasionally",
+  smoking: "No",
+
+  languagesKnown: ["Hindi", "English", "Telugu"],
+
+  partnerPreferences: {
+    ageMin: 22,
+    ageMax: 28,
+    religions: ["Hindu"],
+    cities: ["Hyderabad", "Bangalore"],
+    occupations: ["Engineer", "Doctor"]
+  }
 },
 
 {
   name: "Priya Reddy",
-  email: "priya2@gmail.com",
-  phoneNumber: "9876543202",
+  email: "priya@gmail.com",
+  phoneNumber: "9876543211",
   password: "123456",
 
   photos: [
     "https://images.unsplash.com/photo-1494790108377-be9c29b29330",
-    "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df",
     "https://images.unsplash.com/photo-1524504388940-b1c1722653e1"
   ],
 
   gender: "Female",
-  dateOfBirth: "1999-02-10",
+  dateOfBirth: "1999-03-11",
+
   religion: "Hindu",
   motherTongue: "Telugu",
   maritalStatus: "Never Married",
+
   education: "MBA",
   occupation: "HR Manager",
+
   city: "Bangalore",
-  state: "Karnataka"
+  state: "Karnataka",
+
+  bio: "Family-oriented girl who loves traditions and travel.",
+
+  hobbies: ["Cooking", "Music", "Reading"],
+  favoriteFoods: ["Dosa", "Pasta"],
+  favoriteColor: "Pink",
+  interests: ["Travel", "Dance", "Fashion"],
+
+  personalityType: "Extrovert",
+
+  height: 162,
+  annualIncome: 900000,
+
+  drinking: "No",
+  smoking: "No",
+
+  languagesKnown: ["Telugu", "English"],
+
+  partnerPreferences: {
+    ageMin: 25,
+    ageMax: 32,
+    religions: ["Hindu"],
+    cities: ["Hyderabad", "Bangalore"],
+    occupations: ["Software Engineer", "Manager"]
+  }
 },
 
 {
   name: "Arjun Kumar",
-  email: "arjun3@gmail.com",
-  phoneNumber: "9876543203",
+  email: "arjun@gmail.com",
+  phoneNumber: "9876543212",
   password: "123456",
 
   photos: [
-    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
-    "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7",
-    "https://images.unsplash.com/photo-1504257432389-52343af06ae3"
+    "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7"
   ],
 
   gender: "Male",
-  dateOfBirth: "1997-03-11",
+  dateOfBirth: "1995-08-20",
+
   religion: "Hindu",
   motherTongue: "Tamil",
   maritalStatus: "Never Married",
+
   education: "M.Tech",
-  occupation: "Developer",
+  occupation: "Backend Developer",
+
   city: "Chennai",
-  state: "Tamil Nadu"
+  state: "Tamil Nadu",
+
+  bio: "Simple person with modern values.",
+
+  hobbies: ["Cricket", "Photography"],
+  favoriteFoods: ["Idli", "Chicken Curry"],
+  favoriteColor: "Black",
+  interests: ["Coding", "Gaming"],
+
+  personalityType: "Ambivert",
+
+  height: 178,
+  annualIncome: 1500000,
+
+  drinking: "Occasionally",
+  smoking: "No",
+
+  languagesKnown: ["Tamil", "English"],
+
+  partnerPreferences: {
+    ageMin: 22,
+    ageMax: 30,
+    religions: ["Hindu"],
+    cities: ["Chennai", "Bangalore"],
+    occupations: ["Teacher", "Engineer"]
+  }
 },
 
 {
   name: "Sneha Patel",
-  email: "sneha4@gmail.com",
-  phoneNumber: "9876543204",
+  email: "sneha@gmail.com",
+  phoneNumber: "9876543213",
   password: "123456",
 
   photos: [
-    "https://images.unsplash.com/photo-1517841905240-472988babdf9",
-    "https://images.unsplash.com/photo-1491349174775-aaafddd81942",
-    "https://images.unsplash.com/photo-1521119989659-a83eee488004"
+    "https://images.unsplash.com/photo-1517841905240-472988babdf9"
   ],
 
   gender: "Female",
-  dateOfBirth: "2000-07-12",
+  dateOfBirth: "2000-01-15",
+
   religion: "Hindu",
   motherTongue: "Gujarati",
   maritalStatus: "Never Married",
+
   education: "B.Com",
   occupation: "Accountant",
+
   city: "Ahmedabad",
-  state: "Gujarat"
+  state: "Gujarat",
+
+  bio: "Positive minded and cheerful person.",
+
+  hobbies: ["Yoga", "Shopping", "Cooking"],
+  favoriteFoods: ["Gujarati Thali", "Ice Cream"],
+  favoriteColor: "Purple",
+  interests: ["Travel", "Fitness"],
+
+  personalityType: "Extrovert",
+
+  height: 160,
+  annualIncome: 700000,
+
+  drinking: "No",
+  smoking: "No",
+
+  languagesKnown: ["Gujarati", "Hindi", "English"],
+
+  partnerPreferences: {
+    ageMin: 24,
+    ageMax: 31,
+    religions: ["Hindu"],
+    cities: ["Ahmedabad", "Mumbai"],
+    occupations: ["Business", "Engineer"]
+  }
 },
 
 {
-  name: "Karthik",
-  email: "karthik5@gmail.com",
-  phoneNumber: "9876543205",
+  name: "Karthik R",
+  email: "karthik@gmail.com",
+  phoneNumber: "9876543214",
   password: "123456",
 
   photos: [
-    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d",
-    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
-    "https://images.unsplash.com/photo-1511367461989-f85a21fda167"
-  ],
-
-  gender: "Male",
-  dateOfBirth: "1996-11-18",
-  religion: "Hindu",
-  motherTongue: "Kannada",
-  maritalStatus: "Never Married",
-  education: "B.Tech",
-  occupation: "UI Designer",
-  city: "Mysore",
-  state: "Karnataka"
-},
-
-{
-  name: "Ananya",
-  email: "ananya6@gmail.com",
-  phoneNumber: "9876543206",
-  password: "123456",
-
-  photos: [
-    "https://images.unsplash.com/photo-1494790108377-be9c29b29330",
-    "https://images.unsplash.com/photo-1524504388940-b1c1722653e1",
-    "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df"
-  ],
-
-  gender: "Female",
-  dateOfBirth: "1998-08-22",
-  religion: "Hindu",
-  motherTongue: "Malayalam",
-  maritalStatus: "Never Married",
-  education: "B.Sc",
-  occupation: "Teacher",
-  city: "Kochi",
-  state: "Kerala"
-},
-
-{
-  name: "Sathwik",
-  email: "sathwik7@gmail.com",
-  phoneNumber: "9876543207",
-  password: "123456",
-
-  photos: [
-    "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7",
-    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
     "https://images.unsplash.com/photo-1504257432389-52343af06ae3"
   ],
 
   gender: "Male",
-  dateOfBirth: "1995-05-05",
+  dateOfBirth: "1996-11-09",
+
   religion: "Hindu",
-  motherTongue: "Telugu",
+  motherTongue: "Kannada",
   maritalStatus: "Never Married",
+
   education: "B.Tech",
-  occupation: "Backend Developer",
-  city: "Hyderabad",
-  state: "Telangana"
+  occupation: "UI UX Designer",
+
+  city: "Mysore",
+  state: "Karnataka",
+
+  bio: "Creative and calm personality.",
+
+  hobbies: ["Drawing", "Travel"],
+  favoriteFoods: ["Burger", "South Indian"],
+  favoriteColor: "Green",
+  interests: ["Art", "Technology"],
+
+  personalityType: "Introvert",
+
+  height: 173,
+  annualIncome: 1100000,
+
+  drinking: "No",
+  smoking: "No",
+
+  languagesKnown: ["Kannada", "English"],
+
+  partnerPreferences: {
+    ageMin: 22,
+    ageMax: 29,
+    religions: ["Hindu"],
+    cities: ["Mysore", "Bangalore"],
+    occupations: ["Designer", "Engineer"]
+  }
+},
+
+{
+  name: "Ananya Nair",
+  email: "ananya@gmail.com",
+  phoneNumber: "9876543215",
+  password: "123456",
+
+  photos: [
+    "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df"
+  ],
+
+  gender: "Female",
+  dateOfBirth: "1998-07-18",
+
+  religion: "Hindu",
+  motherTongue: "Malayalam",
+  maritalStatus: "Never Married",
+
+  education: "B.Sc",
+  occupation: "Teacher",
+
+  city: "Kochi",
+  state: "Kerala",
+
+  bio: "Traditional values with modern thinking.",
+
+  hobbies: ["Reading", "Music", "Travel"],
+  favoriteFoods: ["Kerala Meals", "Chocolate"],
+  favoriteColor: "White",
+  interests: ["Education", "Nature"],
+
+  personalityType: "Ambivert",
+
+  height: 164,
+  annualIncome: 600000,
+
+  drinking: "No",
+  smoking: "No",
+
+  languagesKnown: ["Malayalam", "English"],
+
+  partnerPreferences: {
+    ageMin: 25,
+    ageMax: 32,
+    religions: ["Hindu"],
+    cities: ["Kochi", "Bangalore"],
+    occupations: ["Engineer", "Doctor"]
+  }
+},
+
+{
+  name: "Vikram Singh",
+  email: "vikram@gmail.com",
+  phoneNumber: "9876543216",
+  password: "123456",
+
+  photos: [
+    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e"
+  ],
+
+  gender: "Male",
+  dateOfBirth: "1994-12-05",
+
+  religion: "Hindu",
+  motherTongue: "Punjabi",
+  maritalStatus: "Never Married",
+
+  education: "MBA",
+  occupation: "Business Analyst",
+
+  city: "Delhi",
+  state: "Delhi",
+
+  bio: "Ambitious and family-loving person.",
+
+  hobbies: ["Gym", "Cricket"],
+  favoriteFoods: ["Butter Chicken", "Paneer"],
+  favoriteColor: "Navy Blue",
+  interests: ["Finance", "Sports"],
+
+  personalityType: "Extrovert",
+
+  height: 180,
+  annualIncome: 1800000,
+
+  drinking: "Occasionally",
+  smoking: "No",
+
+  languagesKnown: ["Hindi", "Punjabi", "English"],
+
+  partnerPreferences: {
+    ageMin: 23,
+    ageMax: 30,
+    religions: ["Hindu"],
+    cities: ["Delhi", "Noida"],
+    occupations: ["Manager", "Teacher"]
+  }
 }
 
 ];
-
-
-
-// ===================================
-// ADD MORE USERS TILL 50
-// ===================================
-
-for (let i = 8; i <= 50; i++) {
-
-  users.push({
-
-    name: `User ${i}`,
-
-    email: `user${i}@gmail.com`,
-
-    phoneNumber: `9876543${100 + i}`,
-
-    password: "123456",
-
-    photos: [
-
-      i % 2 === 0
-        ? "https://images.unsplash.com/photo-1494790108377-be9c29b29330"
-        : "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
-
-      i % 2 === 0
-        ? "https://images.unsplash.com/photo-1524504388940-b1c1722653e1"
-        : "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7",
-
-      i % 2 === 0
-        ? "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df"
-        : "https://images.unsplash.com/photo-1504257432389-52343af06ae3"
-
-    ],
-
-    gender: i % 2 === 0
-      ? "Female"
-      : "Male",
-
-    dateOfBirth: "1998-01-01",
-
-    religion: "Hindu",
-
-    motherTongue: "Telugu",
-
-    maritalStatus: "Never Married",
-
-    education: "B.Tech",
-
-    occupation: "Software Engineer",
-
-    city: "Hyderabad",
-
-    state: "Telangana"
-
-  });
-
-}
 
 
 

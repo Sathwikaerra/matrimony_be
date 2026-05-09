@@ -13,7 +13,11 @@ const {
     searchUsers,
     
 getProfile,
-    updateProfile,uploadPhoto, deletePhoto, reorderPhotos
+    updateProfile,uploadPhoto, deletePhoto, reorderPhotos,
+      likeUser,
+  addComment,
+  deleteComment,
+  getUserComments,
 } = require('../controllers/authController');
 
 // routes/authRoutes.js
@@ -25,7 +29,7 @@ router.put   ('/photos/reorder', protect, reorderPhotos);
 
 router.post('/signup', registerUser);
 router.post('/login', loginUser);
-router.get('/users', getAllUsers);
+router.get('/users',protect, getAllUsers);
 router.get('/search', searchUsers);
 router.put('/me',      protect, updateProfile);
 router.get('/user/:id', protect, getProfile);
@@ -46,4 +50,23 @@ router.get('/me', protect, async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
+
+
+// Like / Unlike
+router.put('/like/:userId', protect, likeUser);
+
+// Add Comment
+router.post('/comment/:userId', protect, addComment);
+
+// Delete Comment
+router.delete(
+  '/comment/:userId/:commentId',
+  protect,
+  deleteComment
+);
+
+// Get Comments
+router.get('/comment/:userId', protect, getUserComments);
+
+
 module.exports = router;

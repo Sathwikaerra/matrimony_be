@@ -6,9 +6,12 @@ const { notifyProfileViewed } = require('../services/pushService'); // ← ADDED
 // =========================
 // SIGNUP USER
 // =========================
+const bcrypt = require("bcryptjs");
+
 const registerUser = async (req, res) => {
-    console.log("hirtttt signup")
+
     try {
+
         const { name, email, password } = req.body;
 
         if (!name || !email || !password) {
@@ -18,7 +21,9 @@ const registerUser = async (req, res) => {
             });
         }
 
+        // Check existing user
         const existingUser = await User.findOne({ email });
+
         if (existingUser) {
             return res.status(400).json({
                 success: false,
@@ -26,7 +31,23 @@ const registerUser = async (req, res) => {
             });
         }
 
-        const user = await User.create({ name, email, password });
+        // ─── HASH PASSWORD ─────────────────────
+
+        const salt = await bcrypt.genSalt(10);
+
+        const hashedPassword = await bcrypt.hash(
+            password,
+            salt
+        );
+
+        // ─── CREATE USER ───────────────────────
+
+        const user = await User.create({
+            name,
+            email,
+            password: hashedPassword
+        });
+
         const token = generateToken(user._id);
 
         SocketService.emitNewUserRegistration(user);
@@ -41,16 +62,25 @@ const registerUser = async (req, res) => {
                 email: user.email
             }
         });
+
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
-};
+}; 
 
 // =========================
 // LOGIN USER
 // =========================
+
+
 const loginUser = async (req, res) => {
+
     try {
+
         const { email, password } = req.body;
 
         if (!email || !password) {
@@ -60,7 +90,9 @@ const loginUser = async (req, res) => {
             });
         }
 
-        const user = await User.findOne({ email }).select('+password');
+        // Get user with password
+        const user = await User.findOne({ email })
+            .select("+password");
 
         if (!user) {
             return res.status(401).json({
@@ -69,7 +101,11 @@ const loginUser = async (req, res) => {
             });
         }
 
-        const isMatch = await user.comparePassword(password);
+        // Compare hashed password
+        const isMatch = await bcrypt.compare(
+            password,
+            user.password
+        );
 
         if (!isMatch) {
             return res.status(401).json({
@@ -95,36 +131,103 @@ const loginUser = async (req, res) => {
                 occupation: user.occupation
             }
         });
+
     } catch (error) {
+
         console.log(error);
-        res.status(500).json({ success: false, message: error.message });
+
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
 // =========================
 // GET ALL USERS (with pagination)
 // =========================
+const calculateMatchScore = require("../utils/calculateMatchScore");
+
 const getAllUsers = async (req, res) => {
+
     try {
-        const page  = Number(req.query.page)  || 1;
+
+        const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 5;
-        const skip  = (page - 1) * limit;
+        const skip = (page - 1) * limit;
 
-        const users      = await User.find().skip(skip).limit(limit);
-        const totalUsers = await User.countDocuments();
+        // ─── CURRENT LOGGED USER ─────────────────────
+        const currentUser = await User.findById(req.user._id);
 
+        if (!currentUser) {
+            return res.status(404).json({
+                success: false,
+                message: "Current user not found"
+            });
+        }
+
+        // ─── FETCH USERS ─────────────────────────────
+        const users = await User.find({
+            _id: { $ne: currentUser._id },
+            gender: { $ne: currentUser.gender }
+        })
+        .populate("comments.user", "name photos")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+        // ─── CALCULATE MATCH SCORE + SOCIAL DATA ─────
+        const usersWithScore = users.map((user) => {
+
+            const matchScore = calculateMatchScore(currentUser, user);
+
+            const isLiked = user.likes?.some(
+                (id) => id.toString() === currentUser._id.toString()
+            );
+
+            return {
+                ...user.toObject(),
+                matchScore,
+                likesCount:      user.likes?.length || 0,
+                isLiked,
+                likes:           user.likes || [],
+                commentsCount:   user.comments?.length || 0,
+                comments:        user.comments || [],
+                latestComments:  user.comments?.slice(-3).reverse() || [],
+            };
+        });
+
+        // ─── FILTER OUT ZERO SCORE USERS ─────────────  ← ADDED
+        const filteredUsers = usersWithScore.filter(
+            (user) => user.matchScore > 0
+        );
+
+        // ─── SORT BY MATCH SCORE DESC ─────────────────
+        filteredUsers.sort((a, b) => b.matchScore - a.matchScore);
+
+        // ─── TOTAL USERS ─────────────────────────────
+        const totalUsers = await User.countDocuments({
+            _id: { $ne: currentUser._id },
+            gender: { $ne: currentUser.gender }
+        });
+
+        // ─── RESPONSE ────────────────────────────────
         res.status(200).json({
             success: true,
             currentPage: page,
             totalPages: Math.ceil(totalUsers / limit),
             totalUsers,
-            users
+            users: filteredUsers                        // ← was usersWithScore
         });
+
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.log(error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
-
 // =========================
 // SEARCH USERS
 // =========================
@@ -264,6 +367,208 @@ const reorderPhotos = async (req, res) => {
     }
 };
 
+
+
+
+const likeUser = async (req, res) => {
+
+    try {
+
+        const targetUserId = req.params.userId;
+
+        const currentUserId = req.user._id;
+
+        // Cannot like own profile
+        if (
+            targetUserId === currentUserId.toString()
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "You cannot like yourself"
+            });
+        }
+
+        const targetUser = await User.findById(
+            targetUserId
+        );
+
+        if (!targetUser) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        // Check already liked
+        const alreadyLiked =
+            targetUser.likes.some(
+                (id) =>
+                    id.toString() ===
+                    currentUserId.toString()
+            );
+
+        // ─── UNLIKE ───────────────────────────────
+
+        if (alreadyLiked) {
+
+            targetUser.likes =
+                targetUser.likes.filter(
+                    (id) =>
+                        id.toString() !==
+                        currentUserId.toString()
+                );
+
+            await targetUser.save();
+
+            return res.status(200).json({
+                success: true,
+                liked: false,
+                message: "User unliked",
+                likesCount: targetUser.likes.length
+            });
+        }
+
+        // ─── LIKE ONLY ONCE ───────────────────────
+
+        targetUser.likes.push(currentUserId);
+
+        await targetUser.save();
+
+        res.status(200).json({
+            success: true,
+            liked: true,
+            message: "User liked",
+            likesCount: targetUser.likes.length
+        });
+
+    } catch (error) {
+
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+
+const addComment = async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    const targetUserId = req.params.userId;
+
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment text required',
+      });
+    }
+
+    const targetUser = await User.findById(targetUserId);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    targetUser.comments.push({
+      user: req.user._id,
+      text,
+    });
+
+    await targetUser.save();
+
+    const updatedUser = await User.findById(targetUserId)
+      .populate('comments.user', 'name photos');
+
+    res.status(200).json({
+      success: true,
+      comments: updatedUser.comments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+const deleteComment = async (req, res) => {
+  try {
+    const { userId, commentId } = req.params;
+
+    const targetUser = await User.findById(userId);
+
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const comment = targetUser.comments.id(commentId);
+
+    if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Comment not found',
+      });
+    }
+
+    // Only comment owner can delete
+
+    if (comment.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    targetUser.comments.pull(commentId);
+
+    await targetUser.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Comment deleted',
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+const getUserComments = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId)
+      .populate('comments.user', 'name photos');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      comments: user.comments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
     registerUser,
     loginUser,
@@ -273,5 +578,9 @@ module.exports = {
     updateProfile,
     uploadPhoto,
     deletePhoto,
-    reorderPhotos
+    reorderPhotos,
+    likeUser,
+    addComment,
+    deleteComment,
+    getUserComments
 };
