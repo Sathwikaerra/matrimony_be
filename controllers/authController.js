@@ -147,7 +147,6 @@ const loginUser = async (req, res) => {
 // GET ALL USERS (with pagination)
 // =========================
 const calculateMatchScore = require("../utils/calculateMatchScore");
-
 const getAllUsers = async (req, res) => {
 
     try {
@@ -188,22 +187,14 @@ const getAllUsers = async (req, res) => {
             return {
                 ...user.toObject(),
                 matchScore,
-                likesCount:      user.likes?.length || 0,
+                likesCount:     user.likes?.length || 0,
                 isLiked,
-                likes:           user.likes || [],
-                commentsCount:   user.comments?.length || 0,
-                comments:        user.comments || [],
-                latestComments:  user.comments?.slice(-3).reverse() || [],
+                likes:          user.likes || [],
+                commentsCount:  user.comments?.length || 0,
+                comments:       user.comments || [],
+                latestComments: user.comments?.slice(-3).reverse() || [],
             };
         });
-
-        // ─── FILTER OUT ZERO SCORE USERS ─────────────  ← ADDED
-        const filteredUsers = usersWithScore.filter(
-            (user) => user.matchScore > 0
-        );
-
-        // ─── SORT BY MATCH SCORE DESC ─────────────────
-        filteredUsers.sort((a, b) => b.matchScore - a.matchScore);
 
         // ─── TOTAL USERS ─────────────────────────────
         const totalUsers = await User.countDocuments({
@@ -217,7 +208,7 @@ const getAllUsers = async (req, res) => {
             currentPage: page,
             totalPages: Math.ceil(totalUsers / limit),
             totalUsers,
-            users: filteredUsers                        // ← was usersWithScore
+            users: usersWithScore
         });
 
     } catch (error) {
@@ -228,6 +219,86 @@ const getAllUsers = async (req, res) => {
         });
     }
 };
+// const getAllUsers = async (req, res) => {
+
+//     try {
+
+//         const page = Number(req.query.page) || 1;
+//         const limit = Number(req.query.limit) || 5;
+//         const skip = (page - 1) * limit;
+
+//         // ─── CURRENT LOGGED USER ─────────────────────
+//         const currentUser = await User.findById(req.user._id);
+
+//         if (!currentUser) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "Current user not found"
+//             });
+//         }
+
+//         // ─── FETCH USERS ─────────────────────────────
+//         const users = await User.find({
+//             _id: { $ne: currentUser._id },
+//             gender: { $ne: currentUser.gender }
+//         })
+//         .populate("comments.user", "name photos")
+//         .sort({ createdAt: -1 })
+//         .skip(skip)
+//         .limit(limit);
+
+//         // ─── CALCULATE MATCH SCORE + SOCIAL DATA ─────
+//         const usersWithScore = users.map((user) => {
+
+//             const matchScore = calculateMatchScore(currentUser, user);
+
+//             const isLiked = user.likes?.some(
+//                 (id) => id.toString() === currentUser._id.toString()
+//             );
+
+//             return {
+//                 ...user.toObject(),
+//                 matchScore,
+//                 likesCount:      user.likes?.length || 0,
+//                 isLiked,
+//                 likes:           user.likes || [],
+//                 commentsCount:   user.comments?.length || 0,
+//                 comments:        user.comments || [],
+//                 latestComments:  user.comments?.slice(-3).reverse() || [],
+//             };
+//         });
+
+//         // ─── FILTER OUT ZERO SCORE USERS ─────────────  ← ADDED
+//         const filteredUsers = usersWithScore.filter(
+//             (user) => user.matchScore > 0
+//         );
+
+//         // ─── SORT BY MATCH SCORE DESC ─────────────────
+//         filteredUsers.sort((a, b) => b.matchScore - a.matchScore);
+
+//         // ─── TOTAL USERS ─────────────────────────────
+//         const totalUsers = await User.countDocuments({
+//             _id: { $ne: currentUser._id },
+//             gender: { $ne: currentUser.gender }
+//         });
+
+//         // ─── RESPONSE ────────────────────────────────
+//         res.status(200).json({
+//             success: true,
+//             currentPage: page,
+//             totalPages: Math.ceil(totalUsers / limit),
+//             totalUsers,
+//             users: filteredUsers                        // ← was usersWithScore
+//         });
+
+//     } catch (error) {
+//         console.log(error);
+//         res.status(500).json({
+//             success: false,
+//             message: error.message
+//         });
+//     }
+// };
 // =========================
 // SEARCH USERS
 // =========================
