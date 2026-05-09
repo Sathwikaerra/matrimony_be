@@ -148,71 +148,37 @@ const loginUser = async (req, res) => {
 // =========================
 const calculateMatchScore = require("../utils/calculateMatchScore");
 const getAllUsers = async (req, res) => {
-
     try {
 
+        // ✅ Pagination
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 5;
+
         const skip = (page - 1) * limit;
 
-        // ─── CURRENT LOGGED USER ─────────────────────
-        const currentUser = await User.findById(req.user._id);
+        // ✅ Get all users with pagination
+        const users = await User.find()
+            .populate("comments.user", "name photos")
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
 
-        if (!currentUser) {
-            return res.status(404).json({
-                success: false,
-                message: "Current user not found"
-            });
-        }
+        // ✅ Total users count
+        const totalUsers = await User.countDocuments();
 
-        // ─── FETCH USERS ─────────────────────────────
-        const users = await User.find({
-            _id: { $ne: currentUser._id },
-            gender: { $ne: currentUser.gender }
-        })
-        .populate("comments.user", "name photos")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit);
-
-        // ─── CALCULATE MATCH SCORE + SOCIAL DATA ─────
-        const usersWithScore = users.map((user) => {
-
-            const matchScore = calculateMatchScore(currentUser, user);
-
-            const isLiked = user.likes?.some(
-                (id) => id.toString() === currentUser._id.toString()
-            );
-
-            return {
-                ...user.toObject(),
-                matchScore,
-                likesCount:     user.likes?.length || 0,
-                isLiked,
-                likes:          user.likes || [],
-                commentsCount:  user.comments?.length || 0,
-                comments:       user.comments || [],
-                latestComments: user.comments?.slice(-3).reverse() || [],
-            };
-        });
-
-        // ─── TOTAL USERS ─────────────────────────────
-        const totalUsers = await User.countDocuments({
-            _id: { $ne: currentUser._id },
-            gender: { $ne: currentUser.gender }
-        });
-
-        // ─── RESPONSE ────────────────────────────────
+        // ✅ Response
         res.status(200).json({
             success: true,
             currentPage: page,
             totalPages: Math.ceil(totalUsers / limit),
             totalUsers,
-            users: usersWithScore
+            users
         });
 
     } catch (error) {
+
         console.log(error);
+
         res.status(500).json({
             success: false,
             message: error.message
