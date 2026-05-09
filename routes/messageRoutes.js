@@ -16,7 +16,13 @@ const {
 // POST   /api/messages/send
 router.post('/send', sendMessage);
 
-// GET    /api/messages/recent/:senderId  ← must be BEFORE /:senderId/:receiverId
+// GET    /api/messages/unread-count/:userId
+router.get('/unread-count/:userId', getUnreadCount);
+
+// PATCH  /api/messages/mark-read/:senderId
+router.patch('/mark-read/:senderId', markAsRead);
+
+// GET    /api/messages/recent/:senderId
 router.get('/recent/:senderId', getRecentChats);
 
 // GET    /api/messages/:senderId/:receiverId
@@ -24,9 +30,4 @@ router.get('/:senderId/:receiverId', getMessages);
 
 // DELETE /api/messages/:msgId
 router.delete('/:msgId', deleteMessage);
-
-
-router.get('/unread-count/:userId',      getUnreadCount);      // ← add (before param routes)
-router.patch('/mark-read/:senderId',     markAsRead); 
-
 module.exports = router;    
