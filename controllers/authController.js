@@ -157,11 +157,13 @@ const getAllUsers = async (req, res) => {
         const skip = (page - 1) * limit;
 
         // ✅ Get all users with pagination
-        const users = await User.find()
-            .populate("comments.user", "name photos")
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit);
+     const users = await User.find({
+    _id: { $ne: req.user._id }
+})
+    .populate("comments.user", "name photos")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
 
         // ✅ Total users count
         const totalUsers = await User.countDocuments();
