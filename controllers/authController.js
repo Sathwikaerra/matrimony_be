@@ -148,44 +148,64 @@ const loginUser = async (req, res) => {
 // =========================
 const calculateMatchScore = require("../utils/calculateMatchScore");
 const getAllUsers = async (req, res) => {
-    try {
+  try {
 
-        // ✅ Pagination
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 5;
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 5;
 
-        const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-        // ✅ Get all users with pagination
-     const users = await User.find({
-    _id: { $ne: req.user._id }
-})
-    .populate("comments.user", "name photos")
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
+    // ✅ Fetch users
+    const users = await User.find({
+      _id: { $ne: req.user._id }
+    })
+      .populate("comments.user", "name photos")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
-        // ✅ Total users count
-        const totalUsers = await User.countDocuments();
+    // ✅ Add likesCount + isLiked
+    const modifiedUsers = users.map((user) => {
 
-        // ✅ Response
-        res.status(200).json({
-            success: true,
-            currentPage: page,
-            totalPages: Math.ceil(totalUsers / limit),
-            totalUsers,
-            users
-        });
+      const likesCount = user.likes.length;
 
-    } catch (error) {
+      const isLiked = user.likes.some(
+        (id) => id.toString() === req.user._id.toString()
+      );
 
-        console.log(error);
+      return {
+        ...user.toObject(),
 
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
+        likesCount,
+
+        isLiked,
+      };
+    });
+
+    // ✅ Total users count
+    const totalUsers = await User.countDocuments({
+      _id: { $ne: req.user._id }
+    });
+
+    // ✅ Response
+    res.status(200).json({
+      success: true,
+      currentPage: page,
+      totalPages: Math.ceil(totalUsers / limit),
+      totalUsers,
+      users: modifiedUsers,
+    });
+
+  } catch (error) {
+
+    console.log(error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 };
 // const getAllUsers = async (req, res) => {
 
