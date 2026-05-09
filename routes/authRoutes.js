@@ -11,6 +11,8 @@ const {
     loginUser,
     getAllUsers,
     searchUsers,
+    
+getProfile,
     updateProfile,uploadPhoto, deletePhoto, reorderPhotos
 } = require('../controllers/authController');
 
@@ -26,6 +28,7 @@ router.post('/login', loginUser);
 router.get('/users', getAllUsers);
 router.get('/search', searchUsers);
 router.put('/me',      protect, updateProfile);
+router.get('/user/:id', protect, getProfile);
 
 // routes/authRoutes.js
 router.get('/me', protect, async (req, res) => {

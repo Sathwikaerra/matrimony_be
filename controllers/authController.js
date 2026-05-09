@@ -130,6 +130,8 @@ const getAllUsers = async (req, res) => {
 // =========================
 const searchUsers = async (req, res) => {
     try {
+
+        console.log("search hitttt")
         const search = req.query.search || "";
 
         const users = await User.find({
@@ -151,7 +153,9 @@ const searchUsers = async (req, res) => {
 // =========================
 const getProfile = async (req, res) => {
     try {
-        const { profileId } = req.params;
+       const { id: profileId } = req.params;  // rename id → profileId inside controller
+
+        console.log("search uer hitttttttttttttt")
 
         const profile = await User.findById(profileId).select('-password');
 
