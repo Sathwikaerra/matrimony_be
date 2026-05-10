@@ -12,7 +12,14 @@ const registerUser = async (req, res) => {
 
   try {
 
-    const { name, email, password } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role = "user",
+    } = req.body;
+
+
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -45,7 +52,8 @@ const registerUser = async (req, res) => {
     const user = await User.create({
       name,
       email,
-      password: hashedPassword
+      password: hashedPassword,
+      role
     });
 
     const token = generateToken(user._id);
@@ -59,7 +67,8 @@ const registerUser = async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        email: user.email
+        email: user.email,
+        role: user.role
       }
     });
 
@@ -128,7 +137,8 @@ const loginUser = async (req, res) => {
         email: user.email,
         photos: user.photos,
         city: user.city,
-        occupation: user.occupation
+        occupation: user.occupation,
+        role: user.role
       }
     });
 
@@ -495,7 +505,7 @@ const likeUser = async (req, res) => {
 
     // ── Real-time notification ──────────────────────────────────────────
     SocketService.emitLikeNotification(req.user, targetUserId);
-    
+
     // Push notification
     notifyInterestReceived(targetUserId, req.user.name, currentUserId.toString());
     // ──────────────────────────────────────────────────────────────────
@@ -549,7 +559,7 @@ const addComment = async (req, res) => {
 
     // ── Real-time notification ──────────────────────────────────────────
     SocketService.emitCommentNotification(req.user, targetUserId, text);
-    
+
     // Push notification
     sendPushToUser(targetUserId, {
       title: `💬 New comment from ${req.user.name}`,

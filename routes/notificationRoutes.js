@@ -2,10 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const FCMToken = require('../models/FCMToken');
-const authMiddleware = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/authMiddleware');
 
 // POST /api/notifications/save-token
-router.post('/save-token', authMiddleware, async (req, res) => {
+router.post('/save-token', protect, async (req, res) => {
   try {
     const { token, deviceType } = req.body;
     const userId = req.user._id;
@@ -29,7 +29,7 @@ router.post('/save-token', authMiddleware, async (req, res) => {
 });
 
 // POST /api/notifications/remove-token
-router.post('/remove-token', authMiddleware, async (req, res) => {
+router.post('/remove-token', protect, async (req, res) => {
   try {
     const { token } = req.body;
     const userId = req.user._id;

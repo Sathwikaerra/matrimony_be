@@ -28,6 +28,8 @@ app.use(express.json());
 app.use('/auth', authRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/connections', connectionRoutes);
+const adminRoutes = require('./routes/adminRoutes');
+app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 
