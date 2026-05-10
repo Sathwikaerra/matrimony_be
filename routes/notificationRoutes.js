@@ -1,52 +1,44 @@
 // routes/notificationRoutes.js
 const express = require('express');
 const router = express.Router();
-const PushSubscription = require('../models/PushSubscription');
-const authMiddleware = require('../middleware/authMiddleware'); // corrected filename
+const FCMToken = require('../models/FCMToken');
+const authMiddleware = require('../middleware/authMiddleware');
 
-// POST /api/notifications/subscribe
-router.post('/subscribe', authMiddleware, async (req, res) => {
+// POST /api/notifications/save-token
+router.post('/save-token', authMiddleware, async (req, res) => {
   try {
-    const { subscription } = req.body;
+    const { token, deviceType } = req.body;
     const userId = req.user._id;
 
-    if (!subscription?.endpoint || !subscription?.keys) {
-      return res.status(400).json({ success: false, message: 'Invalid subscription object' });
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token is required' });
     }
 
-    // Upsert — one subscription per user
-    await PushSubscription.findOneAndUpdate(
-      { userId },
-      { userId, subscription },
+    // Upsert — save token for user
+    await FCMToken.findOneAndUpdate(
+      { userId, token },
+      { userId, token, deviceType: deviceType || 'web' },
       { upsert: true, new: true }
     );
 
-    res.status(200).json({ success: true, message: 'Subscribed to push notifications' });
+    res.status(200).json({ success: true, message: 'FCM Token saved' });
   } catch (error) {
-    console.error('subscribe error:', error.message);
+    console.error('save-token error:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// POST /api/notifications/unsubscribe
-router.post('/unsubscribe', authMiddleware, async (req, res) => {
+// POST /api/notifications/remove-token
+router.post('/remove-token', authMiddleware, async (req, res) => {
   try {
+    const { token } = req.body;
     const userId = req.user._id;
-    await PushSubscription.deleteOne({ userId });
-    res.status(200).json({ success: true, message: 'Unsubscribed' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// GET /api/notifications/status  (optional — check if user is subscribed)
-router.get('/status', authMiddleware, async (req, res) => {
-  try {
-    const sub = await PushSubscription.findOne({ userId: req.user._id });
-    res.status(200).json({ success: true, subscribed: !!sub });
+    await FCMToken.deleteOne({ userId, token });
+    res.status(200).json({ success: true, message: 'Token removed' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
 module.exports = router;
+

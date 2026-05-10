@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const SocketService = require('../services/socketService');
-const { notifyProfileViewed } = require('../services/pushService'); // ← ADDED
+const { notifyProfileViewed, notifyInterestReceived, sendPushToUser } = require('../services/pushService'); // ← UPDATED
 
 // =========================
 // SIGNUP USER
@@ -495,6 +495,9 @@ const likeUser = async (req, res) => {
 
     // ── Real-time notification ──────────────────────────────────────────
     SocketService.emitLikeNotification(req.user, targetUserId);
+    
+    // Push notification
+    notifyInterestReceived(targetUserId, req.user.name, currentUserId.toString());
     // ──────────────────────────────────────────────────────────────────
 
     res.status(200).json({
@@ -546,6 +549,15 @@ const addComment = async (req, res) => {
 
     // ── Real-time notification ──────────────────────────────────────────
     SocketService.emitCommentNotification(req.user, targetUserId, text);
+    
+    // Push notification
+    sendPushToUser(targetUserId, {
+      title: `💬 New comment from ${req.user.name}`,
+      body: text.length > 60 ? text.slice(0, 60) + '…' : text,
+      type: 'message',
+      senderId: req.user._id,
+      data: { url: `/profile/${targetUserId}` }
+    });
     // ──────────────────────────────────────────────────────────────────
 
     const updatedUser = await User.findById(targetUserId)

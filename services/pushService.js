@@ -1,31 +1,26 @@
 // services/pushService.js
-const webpush = require('web-push');
-const PushSubscription = require('../models/PushSubscription');
-
-webpush.setVapidDetails(
-  `mailto:${process.env.VAPID_EMAIL || 'admin@matrimonyapp.com'}`,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+const { sendPushNotification } = require('../config/firebaseAdmin');
+const FCMToken = require('../models/FCMToken');
 
 // ─── Core send ─────────────────────────────────────────────────────────────────
 async function sendPushToUser(userId, payload) {
   try {
-    const doc = await PushSubscription.findOne({ userId });
-    if (!doc) return; // user not subscribed
+    const tokens = await FCMToken.find({ userId }).select('token');
+    if (!tokens || tokens.length === 0) return; // user not subscribed
 
-    await webpush.sendNotification(
-      doc.subscription,
-      JSON.stringify(payload)
-    );
+    const tokenList = tokens.map(t => t.token);
+    
+    await sendPushNotification(tokenList, {
+      title: payload.title,
+      body: payload.body,
+      data: {
+        type: payload.type || 'general',
+        senderId: payload.senderId?.toString() || '',
+        ...payload.data
+      }
+    });
   } catch (err) {
-    if (err.statusCode === 410 || err.statusCode === 404) {
-      // Subscription expired — clean up
-      await PushSubscription.deleteOne({ userId });
-      console.log(`🗑️  Removed stale subscription for user ${userId}`);
-    } else {
-      console.error('Push send error:', err.message);
-    }
+    console.error('Push send error:', err.message);
   }
 }
 
@@ -33,10 +28,6 @@ async function sendPushToUser(userId, payload) {
 
 /**
  * Notify receiver of a new chat message
- * @param {string} receiverId
- * @param {string} senderName
- * @param {string} senderId
- * @param {string} messagePreview
  */
 async function notifyNewMessage(receiverId, senderName, senderId, messagePreview) {
   await sendPushToUser(receiverId, {
@@ -50,9 +41,6 @@ async function notifyNewMessage(receiverId, senderName, senderId, messagePreview
 
 /**
  * Notify sender when their connection request is accepted (new match)
- * @param {string} senderId   — person who sent the original request
- * @param {string} acceptorName
- * @param {string} acceptorId
  */
 async function notifyNewMatch(senderId, acceptorName, acceptorId) {
   await sendPushToUser(senderId, {
@@ -66,9 +54,6 @@ async function notifyNewMatch(senderId, acceptorName, acceptorId) {
 
 /**
  * Notify user when someone views their profile
- * @param {string} profileOwnerId
- * @param {string} viewerName
- * @param {string} viewerId
  */
 async function notifyProfileViewed(profileOwnerId, viewerName, viewerId) {
   await sendPushToUser(profileOwnerId, {
@@ -82,9 +67,6 @@ async function notifyProfileViewed(profileOwnerId, viewerName, viewerId) {
 
 /**
  * Notify user when they receive a connection interest/request
- * @param {string} receiverId
- * @param {string} senderName
- * @param {string} senderId
  */
 async function notifyInterestReceived(receiverId, senderName, senderId) {
   await sendPushToUser(receiverId, {
@@ -103,3 +85,4 @@ module.exports = {
   notifyProfileViewed,
   notifyInterestReceived,
 };
+
