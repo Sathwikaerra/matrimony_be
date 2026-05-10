@@ -53,6 +53,13 @@ const initSocket = (httpServer) => {
             }
         });
 
+        socket.on('refreshUnreadCount', ({ userId }) => {
+            if (userId) {
+                io.to(userId.toString()).emit('refreshUnreadCount');
+                console.log(`🔄 Refresh unread count for user: ${userId}`);
+            }
+        });
+
         // ── Delete message ─────────────────────────────────────────────────
         socket.on('deleteMessage', ({ msgId, receiverId }) => {
             if (receiverId) {
