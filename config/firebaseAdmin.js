@@ -10,34 +10,26 @@ try {
 
   if (!admin.apps.length) {
 
+    const serviceAccount = JSON.parse(
+      process.env.FIREBASE_SERVICE_ACCOUNT
+    );
+
     admin.initializeApp({
-
-      credential: admin.credential.cert({
-
-        projectId: process.env.FIREBASE_PROJECT_ID,
-
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-
-      }),
-
+      credential: admin.credential.cert(serviceAccount),
     });
 
 
     
 
     console.log("✅ Firebase Admin initialized");
-
   }
 
 } catch (error) {
 
   console.error(
     "❌ Firebase Admin initialization failed:",
-    error.message
+    error
   );
-
 }
 
 /*
@@ -82,15 +74,24 @@ const sendPushNotification = async (tokens, payload) => {
 
       const failedTokens = [];
 
-      response.responses.forEach((resp, idx) => {
+     response.responses.forEach((resp, idx) => {
 
-        if (!resp.success) {
+  if (!resp.success) {
 
-          failedTokens.push(tokens[idx]);
+    failedTokens.push(tokens[idx]);
 
-        }
+    console.log(
+      `❌ Token Failed: ${tokens[idx]}`
+    );
 
-      });
+    console.log(
+      "Reason:",
+      resp.error?.code,
+      resp.error?.message
+    );
+  }
+
+});
 
       console.log("❌ Failed tokens:", failedTokens);
 
@@ -110,4 +111,4 @@ const sendPushNotification = async (tokens, payload) => {
 module.exports = {
   admin,
   sendPushNotification,
-};
+};	

@@ -1,107 +1,195 @@
 // socket/socket.js
-const { Server } = require('socket.io');
+
+const { Server } = require("socket.io");
 
 let io;
 
-// Map: userId → socket.id
+// userId -> socketId
 const userSocketMap = {};
 
 const getOnlineUsers = () => Object.keys(userSocketMap);
 
 const initSocket = (httpServer) => {
-    io = new Server(httpServer, {
-        cors: {
-            origin: process.env.CLIENT_URL || '*',
-            methods: ['GET', 'POST'],
-        },
+  io = new Server(httpServer, {
+    cors: {
+      origin: process.env.CLIENT_URL || "*",
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+
+    // ✅ Important for Android/mobile browsers
+    transports: ["websocket", "polling"],
+  });
+
+  io.on("connection", (socket) => {
+    console.log("🔌 Socket connected:", socket.id);
+
+    // ─────────────────────────────────────────────
+    // Register User
+    // ─────────────────────────────────────────────
+    socket.on("registerUser", (userId) => {
+      try {
+        if (!userId) {
+          console.log("⚠️ registerUser called without userId");
+          return;
+        }
+
+        const uidStr = userId.toString();
+
+        // Save latest socket id
+        userSocketMap[uidStr] = socket.id;
+
+        // Join room using userId
+        socket.join(uidStr);
+
+        console.log(
+          `✅ User ${uidStr} registered with socket ${socket.id}`
+        );
+
+        console.log("🟢 Online users:", getOnlineUsers());
+
+        // Send online users to everyone
+        io.emit("onlineUsers", getOnlineUsers());
+
+      } catch (err) {
+        console.log("❌ registerUser error:", err.message);
+      }
     });
 
-    io.on('connection', (socket) => {
-        console.log('🔌 Socket connected:', socket.id);
-
-        // ── Register user ──────────────────────────────────────────────────
-        socket.on('registerUser', (userId) => {
-            if (!userId) {
-                console.log('⚠️  registerUser called with empty userId');
-                return;
-            }
-            
-            const uidStr = userId.toString();
-            userSocketMap[uidStr] = socket.id; // Map userId to this specific socket
-            socket.join(uidStr); // ✅ Join a room named after userId
-            
-            // 1. Send current online list to the user who just registered
-            socket.emit('onlineUsers', getOnlineUsers());
-            
-            // 2. Notify everyone else
-            io.emit('onlineUsers', getOnlineUsers());
-            
-            console.log(`✅ User ${uidStr} registered (socket ${socket.id}) and joined room`);
-            console.log('🟢 Online users now:', getOnlineUsers());
-        });
-
-        socket.on('getOnlineUsers', () => {
-            socket.emit('onlineUsers', getOnlineUsers());
-        });
-
-        // ── Send message ───────────────────────────────────────────────────
-        socket.on('sendMessage', (data) => {
-            const receiverId = data.receiverId?.toString();
-            if (receiverId) {
-                io.to(receiverId).emit('receiveMessage', data);
-                console.log(`📨 Message sent to room: ${receiverId}`);
-            }
-        });
-
-        socket.on('refreshUnreadCount', ({ userId }) => {
-            if (userId) {
-                io.to(userId.toString()).emit('refreshUnreadCount');
-                console.log(`🔄 Refresh unread count for user: ${userId}`);
-            }
-        });
-
-        // ── Delete message ─────────────────────────────────────────────────
-        socket.on('deleteMessage', ({ msgId, receiverId }) => {
-            if (receiverId) {
-                io.to(receiverId.toString()).emit('messageDeleted', { msgId });
-            }
-        });
-
-        // ── Typing indicators ──────────────────────────────────────────────
-        socket.on('typing', ({ senderId, receiverId }) => {
-            if (receiverId) {
-                io.to(receiverId.toString()).emit('partnerTyping', { senderId });
-            }
-        });
-
-        socket.on('stopTyping', ({ senderId, receiverId }) => {
-            if (receiverId) {
-                io.to(receiverId.toString()).emit('partnerStopTyping', { senderId });
-            }
-        });
-
-        // ── Disconnect ─────────────────────────────────────────────────────
-        socket.on('disconnect', () => {
-            // Find which user this socket belonged to
-            const userId = Object.keys(userSocketMap).find(
-                (key) => userSocketMap[key] === socket.id
-            );
-            
-            if (userId) {
-                delete userSocketMap[userId];
-                io.emit('onlineUsers', getOnlineUsers());
-                console.log(`🔴 User ${userId} disconnected`);
-                console.log('🟢 Online users now:', getOnlineUsers());
-            }
-        });
+    // ─────────────────────────────────────────────
+    // Get Online Users
+    // ─────────────────────────────────────────────
+    socket.on("getOnlineUsers", () => {
+      socket.emit("onlineUsers", getOnlineUsers());
     });
 
-    return io;
+    // ─────────────────────────────────────────────
+    // Send Message
+    // ─────────────────────────────────────────────
+    socket.on("sendMessage", (data) => {
+      try {
+        const receiverId = data?.receiverId?.toString();
+
+        if (!receiverId) return;
+
+        io.to(receiverId).emit("receiveMessage", data);
+
+        console.log(`📨 Message sent to room: ${receiverId}`);
+
+      } catch (err) {
+        console.log("❌ sendMessage error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Refresh Unread Count
+    // ─────────────────────────────────────────────
+    socket.on("refreshUnreadCount", ({ userId }) => {
+      try {
+        if (!userId) return;
+
+        io.to(userId.toString()).emit("refreshUnreadCount");
+
+        console.log(`🔄 Refresh unread count for ${userId}`);
+
+      } catch (err) {
+        console.log("❌ refreshUnreadCount error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Delete Message
+    // ─────────────────────────────────────────────
+    socket.on("deleteMessage", ({ msgId, receiverId }) => {
+      try {
+        if (!receiverId) return;
+
+        io.to(receiverId.toString()).emit("messageDeleted", {
+          msgId,
+        });
+
+      } catch (err) {
+        console.log("❌ deleteMessage error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Typing Start
+    // ─────────────────────────────────────────────
+    socket.on("typing", ({ senderId, receiverId }) => {
+      try {
+        if (!receiverId) return;
+
+        io.to(receiverId.toString()).emit("partnerTyping", {
+          senderId,
+        });
+
+      } catch (err) {
+        console.log("❌ typing error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Typing Stop
+    // ─────────────────────────────────────────────
+    socket.on("stopTyping", ({ senderId, receiverId }) => {
+      try {
+        if (!receiverId) return;
+
+        io.to(receiverId.toString()).emit("partnerStopTyping", {
+          senderId,
+        });
+
+      } catch (err) {
+        console.log("❌ stopTyping error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Disconnect
+    // ─────────────────────────────────────────────
+    socket.on("disconnect", (reason) => {
+      console.log("❌ Socket disconnected:", socket.id);
+      console.log("Reason:", reason);
+
+      // Find user of this socket
+      const userId = Object.keys(userSocketMap).find(
+        (key) => userSocketMap[key] === socket.id
+      );
+
+      // ✅ Prevent removing newer socket connection
+      if (userId && userSocketMap[userId] === socket.id) {
+        delete userSocketMap[userId];
+
+        console.log(`🔴 User ${userId} disconnected`);
+
+        io.emit("onlineUsers", getOnlineUsers());
+
+        console.log("🟢 Online users:", getOnlineUsers());
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Socket Error
+    // ─────────────────────────────────────────────
+    socket.on("error", (err) => {
+      console.log("❌ Socket error:", err);
+    });
+  });
+
+  return io;
 };
 
 const getIO = () => {
-    if (!io) throw new Error('Socket.io not initialized');
-    return io;
+  if (!io) {
+    throw new Error("Socket.io not initialized");
+  }
+
+  return io;
 };
 
-module.exports = { initSocket, getIO, getOnlineUsers };
+module.exports = {
+  initSocket,
+  getIO,
+  getOnlineUsers,
+};
