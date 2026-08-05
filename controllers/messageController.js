@@ -9,12 +9,13 @@ const { notifyNewMessage } = require('../services/pushService'); // ← ADD THIS
 // =========================
 const sendMessage = async (req, res) => {
     try {
-        const { senderId, receiverId, message } = req.body;
+        const senderId = req.user._id.toString(); // from JWT, not client body
+        const { receiverId, message } = req.body;
 
-        if (!senderId || !receiverId || !message?.trim()) {
+        if (!receiverId || !message?.trim()) {
             return res.status(400).json({
                 success: false,
-                message: 'senderId, receiverId and message are required',
+                message: 'receiverId and message are required',
             });
         }
 
@@ -36,6 +37,57 @@ const sendMessage = async (req, res) => {
         res.status(201).json({ success: true, messageData: newMessage });
     } catch (error) {
         console.error('sendMessage error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// SEND MESSAGE WITH FILES (photos/videos)
+// =========================
+const sendMessageWithFiles = async (req, res) => {
+    try {
+        const senderId = req.user._id.toString(); // from JWT, not client body
+        const { receiverId, message } = req.body;
+
+        if (!receiverId) {
+            return res.status(400).json({ success: false, message: 'receiverId is required' });
+        }
+
+        const files = req.files || [];
+        if (files.length === 0 && !message?.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one file or a message is required',
+            });
+        }
+
+        const images = files.filter(f => f.mimetype.startsWith('image/')).map(f => f.path);
+        const videos = files.filter(f => f.mimetype.startsWith('video/')).map(f => f.path);
+
+        const newMessage = await Message.create({
+            senderId,
+            receiverId,
+            message: message?.trim() || '',
+            images,
+            videos,
+        });
+
+        // ── Push notification ─────────────────────────────────────────────
+        User.findById(senderId).then((sender) => {
+            if (!sender) return;
+            let preview = message?.trim();
+            if (!preview) {
+                if (videos.length) preview = '📹 Sent a video';
+                else if (images.length) preview = '📷 Sent a photo';
+                else preview = 'Sent an attachment';
+            }
+            notifyNewMessage(receiverId, sender.name, senderId, preview);
+        });
+        // ──────────────────────────────────────────────────────────────────
+
+        res.status(201).json({ success: true, messageData: newMessage });
+    } catch (error) {
+        console.error('sendMessageWithFiles error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -235,6 +287,7 @@ const markAsRead = async (req, res) => {
 
 module.exports = {
     sendMessage,
+    sendMessageWithFiles,
     getMessages,
     deleteMessage,
     getRecentChats,

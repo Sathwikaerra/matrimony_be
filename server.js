@@ -11,6 +11,8 @@ const messageRoutes = require('./routes/messageRoutes');
 const { initSocket } = require('./socket/socket');
 const connectionRoutes = require('./routes/connectionRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const storyRoutes = require('./routes/storyRoutes');
+const { startHighlightPromotion } = require('./utils/storyHighlights');
 
 connectDB();
 
@@ -31,6 +33,7 @@ app.use('/api/connections', connectionRoutes);
 const adminRoutes = require('./routes/adminRoutes');
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/stories', storyRoutes);
 
 
 // =========================
@@ -52,4 +55,5 @@ initSocket(server); // ✅ socket initialized before server.listen
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    startHighlightPromotion();
 });

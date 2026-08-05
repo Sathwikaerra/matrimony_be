@@ -20,4 +20,39 @@ const storage = new CloudinaryStorage({
 
 const upload = multer({ storage });
 
-module.exports = { cloudinary, upload };    
+// ── Chat media (photos & videos shared in messages) ────────────────────────
+// Separate from the profile-photo storage above: no forced square crop,
+// allows video formats, and resource_type 'auto' lets Cloudinary detect
+// image vs. video instead of assuming image-only like the profile uploader.
+const chatMediaStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/chat',
+        resource_type:   'auto',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'],
+    },
+});
+
+const uploadChatMedia = multer({
+    storage: chatMediaStorage,
+    limits: { fileSize: 25 * 1024 * 1024 }, // 25MB per file — videos are much larger than profile photos
+});
+
+// ── Story media (ephemeral 24h photo/video status) ──────────────────────────
+// Same shape as chat media (no forced crop, image+video formats, auto resource
+// type), just a separate folder to keep story uploads cleanly namespaced.
+const storyMediaStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/stories',
+        resource_type:   'auto',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'],
+    },
+});
+
+const uploadStoryMedia = multer({
+    storage: storyMediaStorage,
+    limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia };

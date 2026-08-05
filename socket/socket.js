@@ -1,6 +1,7 @@
 // socket/socket.js
 
 const { Server } = require("socket.io");
+const { isConnected } = require("../utils/isConnected");
 
 let io;
 
@@ -9,10 +10,21 @@ const userSocketMap = {};
 
 const getOnlineUsers = () => Object.keys(userSocketMap);
 
+// Deployed frontend URL(s) come from CLIENT_URL (comma-separated if there's
+// more than one, e.g. "https://matrimonye.netlify.app,https://staging.example.com").
+// Local dev origins are always allowed too, so you don't have to flip
+// CLIENT_URL back and forth between local and deployed testing.
+const DEV_ORIGINS = ["http://localhost:5173", "http://localhost:3000"];
+const configuredOrigins = (process.env.CLIENT_URL || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...configuredOrigins, ...DEV_ORIGINS])];
+
 const initSocket = (httpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL || "*",
+      origin: allowedOrigins,
       methods: ["GET", "POST"],
       credentials: true,
     },
@@ -142,6 +154,69 @@ const initSocket = (httpServer) => {
 
       } catch (err) {
         console.log("❌ stopTyping error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Video Call — Signaling only, media never touches the server.
+    // Calls are gated to accepted connections, same as everywhere else.
+    //
+    // simple-peer (frontend) bundles the offer/answer/ICE-candidates all
+    // through its own generic 'signal' event, so instead of forcing those
+    // into separately-typed socket events (fragile — would mean sniffing
+    // payload shape to route it), `callUser` carries just the *first*
+    // signal (the offer, to ring the callee), and `webrtcSignal` is a
+    // generic bidirectional relay for everything after that — the answer,
+    // and every ICE candidate in both directions. Each side just forwards
+    // whatever simple-peer hands it, verbatim.
+    // ─────────────────────────────────────────────
+    socket.on("callUser", async ({ from, to, signal, callerName }) => {
+      try {
+        if (!from || !to || !signal) return;
+
+        // The caller must actually be the socket claiming to be them
+        if (userSocketMap[from.toString()] !== socket.id) {
+          socket.emit("callUnauthorized", { reason: "Not registered as caller" });
+          return;
+        }
+
+        const allowed = await isConnected(from, to);
+        if (!allowed) {
+          socket.emit("callUnauthorized", { reason: "Not connected with this user" });
+          return;
+        }
+
+        io.to(to.toString()).emit("incomingCall", { from, signal, callerName });
+        console.log(`📞 Call from ${from} to ${to}`);
+      } catch (err) {
+        console.log("❌ callUser error:", err.message);
+      }
+    });
+
+    socket.on("webrtcSignal", ({ to, from, signal }) => {
+      try {
+        if (!to || !signal) return;
+        io.to(to.toString()).emit("webrtcSignal", { from, signal });
+      } catch (err) {
+        console.log("❌ webrtcSignal error:", err.message);
+      }
+    });
+
+    socket.on("rejectCall", ({ to }) => {
+      try {
+        if (!to) return;
+        io.to(to.toString()).emit("callRejected");
+      } catch (err) {
+        console.log("❌ rejectCall error:", err.message);
+      }
+    });
+
+    socket.on("endCall", ({ to }) => {
+      try {
+        if (!to) return;
+        io.to(to.toString()).emit("callEnded");
+      } catch (err) {
+        console.log("❌ endCall error:", err.message);
       }
     });
 
