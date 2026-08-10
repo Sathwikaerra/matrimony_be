@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const Message  = require('../models/Message');
 const User     = require('../models/User');
 const { notifyNewMessage } = require('../services/pushService'); // ← ADD THIS
+const { createNotification } = require('../services/notificationStore');
+const SocketService = require('../services/socketService');
 
 // =========================
 // SEND MESSAGE
@@ -30,6 +32,13 @@ const sendMessage = async (req, res) => {
         User.findById(senderId).then((sender) => {
             if (sender) {
                 notifyNewMessage(receiverId, sender.name, senderId, message.trim());
+                createNotification({
+                    recipient: receiverId,
+                    sender: senderId,
+                    type: 'message',
+                    message: `${sender.name}: ${message.trim().length > 60 ? message.trim().slice(0, 60) + '…' : message.trim()}`,
+                    data: { url: `/messages/${senderId}` },
+                });
             }
         });
         // ──────────────────────────────────────────────────────────────────
@@ -82,6 +91,13 @@ const sendMessageWithFiles = async (req, res) => {
                 else preview = 'Sent an attachment';
             }
             notifyNewMessage(receiverId, sender.name, senderId, preview);
+            createNotification({
+                recipient: receiverId,
+                sender: senderId,
+                type: 'message',
+                message: `${sender.name}: ${preview}`,
+                data: { url: `/messages/${senderId}` },
+            });
         });
         // ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +127,7 @@ const getMessages = async (req, res) => {
                 { senderId: sId, receiverId: rId },
                 { senderId: rId, receiverId: sId },
             ],
+            isDeleted: { $ne: true },
         }).sort({ createdAt: 1 });
 
         await Message.updateMany(
@@ -131,15 +148,78 @@ const getMessages = async (req, res) => {
 const deleteMessage = async (req, res) => {
     try {
         const { msgId } = req.params;
-        const msg = await Message.findByIdAndDelete(msgId);
+        const msg = await Message.findById(msgId);
 
-        if (!msg) {
+        if (!msg || msg.isDeleted) {
             return res.status(404).json({ success: false, message: 'Message not found' });
         }
+
+        // Ownership check — previously missing entirely, so any logged-in
+        // user could delete any message in the DB just by knowing its id.
+        // Either side of the conversation may delete it; nobody else can.
+        const userId = req.user._id.toString();
+        if (msg.senderId.toString() !== userId && msg.receiverId.toString() !== userId) {
+            return res.status(403).json({ success: false, message: 'Not authorized to delete this message' });
+        }
+
+        // Soft delete — flag + keep the row instead of removing it, so the
+        // record survives for future reference/audit. It disappears from
+        // both sides' chat view immediately, same as before.
+        msg.isDeleted = true;
+        msg.deletedBy = req.user._id;
+        msg.deletedAt = new Date();
+        await msg.save();
 
         res.status(200).json({ success: true, message: 'Message deleted' });
     } catch (error) {
         console.error('deleteMessage error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// =========================
+// REACT TO MESSAGE (toggle)
+// =========================
+const reactToMessage = async (req, res) => {
+    try {
+        const { msgId } = req.params;
+        const { emoji } = req.body;
+
+        if (!emoji) {
+            return res.status(400).json({ success: false, message: 'emoji is required' });
+        }
+
+        const msg = await Message.findById(msgId);
+        if (!msg || msg.isDeleted) {
+            return res.status(404).json({ success: false, message: 'Message not found' });
+        }
+
+        // Same ownership rule as delete — only the two people in this
+        // conversation can react to a message in it.
+        const userId = req.user._id.toString();
+        if (msg.senderId.toString() !== userId && msg.receiverId.toString() !== userId) {
+            return res.status(403).json({ success: false, message: 'Not authorized to react to this message' });
+        }
+
+        const existing = msg.reactions.find((r) => r.user.toString() === userId);
+        if (existing && existing.emoji === emoji) {
+            // Same emoji again — toggle off.
+            msg.reactions = msg.reactions.filter((r) => r.user.toString() !== userId);
+        } else if (existing) {
+            existing.emoji = emoji; // swap to the new one
+        } else {
+            msg.reactions.push({ user: req.user._id, emoji });
+        }
+
+        await msg.save();
+
+        // Let the other person in this chat see the reaction live.
+        const otherUserId = msg.senderId.toString() === userId ? msg.receiverId : msg.senderId;
+        SocketService.emitMessageReaction(msg._id, msg.reactions, otherUserId);
+
+        res.status(200).json({ success: true, reactions: msg.reactions });
+    } catch (error) {
+        console.error('reactToMessage error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -164,6 +244,7 @@ const getRecentChats = async (req, res) => {
                         { senderId:   userObjectId },
                         { receiverId: userObjectId },
                     ],
+                    isDeleted: { $ne: true },
                 },
             },
             { $sort: { createdAt: -1 } },
@@ -217,6 +298,7 @@ const getRecentChats = async (req, res) => {
                         photos:     '$userInfo.photos',
                         city:       '$userInfo.city',
                         occupation: '$userInfo.occupation',
+                        lastSeen:   '$userInfo.lastSeen',
                     },
                 },
             },
@@ -248,6 +330,7 @@ const getUnreadCount = async (req, res) => {
         const count = await Message.countDocuments({
             receiverId: new mongoose.Types.ObjectId(userId),
             isRead: { $ne: true },
+            isDeleted: { $ne: true },
         });
 
         res.status(200).json({ success: true, count });
@@ -290,6 +373,7 @@ module.exports = {
     sendMessageWithFiles,
     getMessages,
     deleteMessage,
+    reactToMessage,
     getRecentChats,
     getUnreadCount,
     markAsRead,

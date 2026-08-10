@@ -43,6 +43,9 @@ const userSchema = new mongoose.Schema({
     occupation: String,
     city: String,
     state: String,
+    // Set on socket disconnect — "last seen" for the chat header when the
+    // user isn't currently online. Left unset until their first disconnect.
+    lastSeen: { type: Date },
     // ───────── Likes ─────────
 
     likes: [

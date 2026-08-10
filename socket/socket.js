@@ -2,6 +2,7 @@
 
 const { Server } = require("socket.io");
 const { isConnected } = require("../utils/isConnected");
+const User = require("../models/User");
 
 let io;
 
@@ -106,6 +107,23 @@ const initSocket = (httpServer) => {
 
       } catch (err) {
         console.log("❌ refreshUnreadCount error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Messages Read — lets the read ticks on the sender's screen flip to
+    // blue live, instead of only updating after their next refetch. Pure
+    // relay: the reader tells us who they just caught up on, we tell that
+    // person's room "readerId has read what you sent them".
+    // ─────────────────────────────────────────────
+    socket.on("messagesRead", ({ readerId, otherUserId }) => {
+      try {
+        if (!readerId || !otherUserId) return;
+
+        io.to(otherUserId.toString()).emit("messagesRead", { readerId });
+
+      } catch (err) {
+        console.log("❌ messagesRead error:", err.message);
       }
     });
 
@@ -241,6 +259,13 @@ const initSocket = (httpServer) => {
         io.emit("onlineUsers", getOnlineUsers());
 
         console.log("🟢 Online users:", getOnlineUsers());
+
+        // Record when they were last online, for the chat header's
+        // "Last seen …" line. Fire-and-forget — nothing downstream needs to
+        // block on this.
+        User.findByIdAndUpdate(userId, { lastSeen: new Date() }).catch((err) =>
+          console.log("❌ lastSeen update error:", err.message)
+        );
       }
     });
 

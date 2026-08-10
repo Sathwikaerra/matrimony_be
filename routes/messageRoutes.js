@@ -8,6 +8,7 @@ const {
     sendMessageWithFiles,
     getMessages,
     deleteMessage,
+    reactToMessage,
     getRecentChats,
     getUnreadCount,   // ← add
   markAsRead,
@@ -51,4 +52,8 @@ router.get('/:senderId/:receiverId', protect, getMessages);
 
 // DELETE /api/messages/:msgId
 router.delete('/:msgId', protect, deleteMessage);
+
+// PATCH  /api/messages/:msgId/react
+router.patch('/:msgId/react', protect, reactToMessage);
+
 module.exports = router;

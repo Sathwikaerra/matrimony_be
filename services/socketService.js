@@ -120,6 +120,19 @@ class SocketService {
         }
     }
 
+    // =========================
+    // MESSAGE REACTION
+    // Notifies the other side of a chat that a message's reactions changed
+    // =========================
+    static emitMessageReaction(msgId, reactions, toUserId) {
+        try {
+            const io = getIO();
+            io.to(toUserId.toString()).emit('messageReaction', { msgId, reactions });
+        } catch (error) {
+            console.error('Socket emission error (reaction):', error.message);
+        }
+    }
+
 }
 
 module.exports = SocketService;

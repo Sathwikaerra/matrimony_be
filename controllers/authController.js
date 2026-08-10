@@ -2,6 +2,7 @@ const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const SocketService = require('../services/socketService');
 const { notifyProfileViewed, notifyInterestReceived, sendPushToUser } = require('../services/pushService'); // ← UPDATED
+const { createNotification } = require('../services/notificationStore');
 
 // =========================
 // SIGNUP USER
@@ -349,6 +350,13 @@ const getProfile = async (req, res) => {
           viewer.name,                // "X viewed your profile"
           req.user._id.toString()     // click → go to viewer's profile
         );
+        createNotification({
+          recipient: profileId,
+          sender: req.user._id,
+          type: 'view',
+          message: `${viewer.name} viewed your profile`,
+          data: { url: `/profile/${req.user._id}` },
+        });
       }
     }
     // ────────────────────────────────────────────────────────────────
@@ -508,6 +516,14 @@ const likeUser = async (req, res) => {
 
     // Push notification
     notifyInterestReceived(targetUserId, req.user.name, currentUserId.toString());
+
+    createNotification({
+      recipient: targetUserId,
+      sender: currentUserId,
+      type: 'like',
+      message: `${req.user.name} liked your profile`,
+      data: { url: `/profile/${currentUserId}` },
+    });
     // ──────────────────────────────────────────────────────────────────
 
     res.status(200).json({
@@ -567,6 +583,14 @@ const addComment = async (req, res) => {
       type: 'message',
       senderId: req.user._id,
       data: { url: `/profile/${targetUserId}` }
+    });
+
+    createNotification({
+      recipient: targetUserId,
+      sender: req.user._id,
+      type: 'comment',
+      message: `${req.user.name} commented: "${text.length > 60 ? text.slice(0, 60) + '…' : text}"`,
+      data: { url: `/profile/${req.user._id}` },
     });
     // ──────────────────────────────────────────────────────────────────
 
