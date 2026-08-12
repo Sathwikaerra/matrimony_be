@@ -133,6 +133,21 @@ class SocketService {
         }
     }
 
+    // =========================
+    // WALLPAPER CHANGED
+    // Wallpaper is shared per-conversation — when one side changes it, the
+    // other side (if they currently have that chat open) should pick it up
+    // live instead of only seeing it on their next fetch.
+    // =========================
+    static emitWallpaperChanged(toUserId, fromUserId, wallpaper) {
+        try {
+            const io = getIO();
+            io.to(toUserId.toString()).emit('wallpaperChanged', { otherUserId: fromUserId, wallpaper });
+        } catch (error) {
+            console.error('Socket emission error (wallpaper):', error.message);
+        }
+    }
+
 }
 
 module.exports = SocketService;

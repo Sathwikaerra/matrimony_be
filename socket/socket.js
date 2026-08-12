@@ -1,8 +1,11 @@
 // socket/socket.js
 
 const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
 const { isConnected } = require("../utils/isConnected");
 const User = require("../models/User");
+const CallLog = require("../models/CallLog");
+const Block = require("../models/Block");
 
 let io;
 
@@ -11,6 +14,43 @@ const userSocketMap = {};
 
 // userId -> receiverId (the user whose chat screen they currently have open)
 const userActiveChatMap = {};
+
+// callee's userId -> { from, startedAt, connectedAt } — one entry per
+// currently-ringing-or-active call, keyed by the callee since only one call
+// can be ringing/active for a given user at a time (CallContext's own
+// busy-check on the frontend, backed by the auto-reject-if-busy path
+// below). Finalized into a CallLog row (and removed from here) by whichever
+// of rejectCall/endCall concludes it — see finalizeCallLog().
+const pendingCallLogs = {};
+
+// Writes the CallLog row for whichever pending call `uid` (either party)
+// belongs to, then clears it from pendingCallLogs. Safe to call from either
+// side and safe to call more than once (a second call is just a no-op).
+function finalizeCallLog(uid, { forcedStatus } = {}) {
+  if (!uid) return;
+  let calleeKey = uid;
+  let entry = pendingCallLogs[calleeKey];
+  if (!entry) {
+    calleeKey = Object.keys(pendingCallLogs).find((k) => pendingCallLogs[k].from === uid);
+    entry = calleeKey ? pendingCallLogs[calleeKey] : null;
+  }
+  if (!entry) return;
+  delete pendingCallLogs[calleeKey];
+
+  const endedAt = new Date();
+  const status = forcedStatus || (entry.connectedAt ? "completed" : "missed");
+  const durationSeconds = entry.connectedAt ? Math.max(0, Math.round((endedAt - entry.connectedAt) / 1000)) : 0;
+
+  CallLog.create({
+    caller: entry.from,
+    callee: calleeKey,
+    status,
+    startedAt: entry.startedAt,
+    connectedAt: entry.connectedAt,
+    endedAt,
+    durationSeconds,
+  }).catch((err) => console.log("❌ CallLog write error:", err.message));
+}
 
 const getOnlineUsers = () => Object.keys(userSocketMap);
 
@@ -37,36 +77,72 @@ const initSocket = (httpServer) => {
     transports: ["websocket", "polling"],
   });
 
+  // Authenticate the connection itself with the same JWT already used for
+  // HTTP requests, instead of trusting whatever userId a client-side
+  // "registerUser" event claims. That client-trust model was the actual
+  // cause of the intermittent "Not registered as caller" failures: a
+  // reconnect (this sandbox saw real websocket-upgrade failures — the
+  // transport falls back and reconnects) gets a brand-new socket.id, and
+  // there's a window before the client's next "registerUser" round-trip
+  // lands where userSocketMap[userId] still points at the dead socket —
+  // any callUser attempt in that window failed the identity check even
+  // though it was a perfectly legitimate call. Verifying the JWT at the
+  // handshake and deriving identity from socket.userId removes that race
+  // entirely: identity is established the instant the connection completes,
+  // not on a separate later event.
+  io.use((socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token;
+      if (token) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        socket.userId = decoded.id;
+      }
+    } catch (err) {
+      // Invalid/expired token — let the connection through anyway (matches
+      // the previous behavior of not gatekeeping the socket transport
+      // itself), it just won't have a verified identity. Anything that
+      // needs one (callUser) checks socket.userId explicitly.
+    }
+    next();
+  });
+
   io.on("connection", (socket) => {
     console.log("🔌 Socket connected:", socket.id);
 
+    const registerSocketIdentity = (uidStr) => {
+      userSocketMap[uidStr] = socket.id;
+      socket.join(uidStr);
+      io.emit("onlineUsers", getOnlineUsers());
+    };
+
+    // Authenticated at the handshake — register immediately, no need to
+    // wait for the client's own registerUser round-trip.
+    if (socket.userId) {
+      registerSocketIdentity(socket.userId.toString());
+      console.log(`✅ User ${socket.userId} authenticated on connect (socket ${socket.id})`);
+    }
+
     // ─────────────────────────────────────────────
-    // Register User
+    // Register User — kept for backward compatibility (older cached
+    // clients, or a connection that came in without a token). When the
+    // handshake was already authenticated, this is a no-op re-confirmation;
+    // it never overrides a verified identity with a client-claimed one.
     // ─────────────────────────────────────────────
-    socket.on("registerUser", (userId) => {
+    socket.on("registerUser", (claimedUserId) => {
       try {
-        if (!userId) {
+        const uidStr = (socket.userId || claimedUserId)?.toString();
+        if (!uidStr) {
           console.log("⚠️ registerUser called without userId");
           return;
         }
 
-        const uidStr = userId.toString();
-
-        // Save latest socket id
-        userSocketMap[uidStr] = socket.id;
-
-        // Join room using userId
-        socket.join(uidStr);
+        registerSocketIdentity(uidStr);
 
         console.log(
           `✅ User ${uidStr} registered with socket ${socket.id}`
         );
 
         console.log("🟢 Online users:", getOnlineUsers());
-
-        // Send online users to everyone
-        io.emit("onlineUsers", getOnlineUsers());
-
       } catch (err) {
         console.log("❌ registerUser error:", err.message);
       }
@@ -239,13 +315,30 @@ const initSocket = (httpServer) => {
     // and every ICE candidate in both directions. Each side just forwards
     // whatever simple-peer hands it, verbatim.
     // ─────────────────────────────────────────────
-    socket.on("callUser", async ({ from, to, signal, callerName }) => {
+    socket.on("callUser", async ({ to, signal, callerName }) => {
       try {
-        if (!from || !to || !signal) return;
+        // `from` is the verified identity of this connection (see the JWT
+        // handshake auth above) — never the client-supplied field. That's
+        // what makes this check actually meaningful instead of a racy
+        // "does this in-memory map still agree with itself" comparison.
+        const from = socket.userId;
+        if (!from) {
+          socket.emit("callUnauthorized", { reason: "Not authenticated — try reloading the app" });
+          return;
+        }
+        if (!to || !signal) return;
 
-        // The caller must actually be the socket claiming to be them
-        if (userSocketMap[from.toString()] !== socket.id) {
-          socket.emit("callUnauthorized", { reason: "Not registered as caller" });
+        // Blocking wins over everything else — checked before the admin
+        // bypass too, same priority order as messaging
+        // (messageController.js's getMessagingRestriction).
+        const [blockedByMe, blockedByThem] = await Promise.all([
+          Block.exists({ blocker: from, blocked: to }),
+          Block.exists({ blocker: to, blocked: from }),
+        ]);
+        if (blockedByMe || blockedByThem) {
+          socket.emit("callUnauthorized", {
+            reason: blockedByMe ? "You have blocked this user" : "You are blocked by this user",
+          });
           return;
         }
 
@@ -270,6 +363,12 @@ const initSocket = (httpServer) => {
         // spoofed — used by the full-screen incoming-call UI.
         const callerPhoto = fromUser?.photos?.[0] || null;
 
+        // Start of a call-history entry — finalized by rejectCall/endCall
+        // (or overwritten harmlessly if this same callee somehow gets a
+        // second ring before the first resolves; the busy-check below and
+        // on the frontend normally prevent that).
+        pendingCallLogs[to.toString()] = { from, startedAt: new Date(), connectedAt: null };
+
         io.to(to.toString()).emit("incomingCall", { from, signal, callerName, callerPhoto });
         console.log(`📞 Call from ${from} to ${to}`);
       } catch (err) {
@@ -277,10 +376,32 @@ const initSocket = (httpServer) => {
       }
     });
 
-    socket.on("webrtcSignal", ({ to, from, signal }) => {
+    // Sent by either side once the call is actually connected (real media
+    // flowing, not just ringing) — see CallContext.jsx's connected-status
+    // effect. Marks the pending call-history entry so endCall can tell a
+    // completed call apart from a missed one and compute a real duration.
+    socket.on("callConnected", () => {
+      try {
+        const uid = socket.userId;
+        if (!uid) return;
+        let calleeKey = uid;
+        let entry = pendingCallLogs[calleeKey];
+        if (!entry) {
+          calleeKey = Object.keys(pendingCallLogs).find((k) => pendingCallLogs[k].from === uid);
+          entry = calleeKey ? pendingCallLogs[calleeKey] : null;
+        }
+        if (entry && !entry.connectedAt) entry.connectedAt = new Date();
+      } catch (err) {
+        console.log("❌ callConnected error:", err.message);
+      }
+    });
+
+    socket.on("webrtcSignal", ({ to, signal }) => {
       try {
         if (!to || !signal) return;
-        io.to(to.toString()).emit("webrtcSignal", { from, signal });
+        // Same as callUser — `from` is this connection's verified identity,
+        // not a client-supplied field.
+        io.to(to.toString()).emit("webrtcSignal", { from: socket.userId, signal });
       } catch (err) {
         console.log("❌ webrtcSignal error:", err.message);
       }
@@ -290,6 +411,10 @@ const initSocket = (httpServer) => {
       try {
         if (!to) return;
         io.to(to.toString()).emit("callRejected");
+        // The rejecter is always the callee here — both a deliberate
+        // decline and the auto-reject-if-busy path in CallContext.jsx emit
+        // this from the callee's own socket.
+        finalizeCallLog(socket.userId, { forcedStatus: "declined" });
       } catch (err) {
         console.log("❌ rejectCall error:", err.message);
       }
@@ -299,6 +424,10 @@ const initSocket = (httpServer) => {
       try {
         if (!to) return;
         io.to(to.toString()).emit("callEnded");
+        // Whichever side hangs up — finalizeCallLog finds the entry
+        // regardless of whether socket.userId was the caller or callee,
+        // and derives completed-vs-missed from whether it ever connected.
+        finalizeCallLog(socket.userId);
       } catch (err) {
         console.log("❌ endCall error:", err.message);
       }
@@ -332,6 +461,21 @@ const initSocket = (httpServer) => {
           io.to(oldReceiverId).emit("partnerLeftChat", { userId });
           delete userActiveChatMap[userId];
           console.log(`🧸 User ${userId} active chat cleaned up on disconnect`);
+        }
+
+        // A network drop mid-call never fires an explicit endCall — without
+        // this, that call's CallLog row would just never get written, and
+        // the other party's UI would sit there indefinitely thinking the
+        // call is still live. Find + close out whichever pending call (as
+        // caller or callee) this user was in, and let the other side know.
+        let pendingCalleeKey = userId in pendingCallLogs ? userId : null;
+        if (!pendingCalleeKey) {
+          pendingCalleeKey = Object.keys(pendingCallLogs).find((k) => pendingCallLogs[k].from === userId);
+        }
+        if (pendingCalleeKey) {
+          const otherParty = pendingCalleeKey === userId ? pendingCallLogs[pendingCalleeKey].from : pendingCalleeKey;
+          io.to(otherParty.toString()).emit("callEnded");
+          finalizeCallLog(userId);
         }
 
         // Record when they were last online, for the chat header's

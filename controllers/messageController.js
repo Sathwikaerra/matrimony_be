@@ -4,6 +4,41 @@ const Message  = require('../models/Message');
 const User     = require('../models/User');
 const { notifyNewMessage } = require('../services/pushService'); // ← ADD THIS
 const SocketService = require('../services/socketService');
+const { isConnected } = require('../utils/isConnected');
+const Block = require('../models/Block');
+const ChatClear = require('../models/ChatClear');
+
+// Messaging is gated to accepted connections, same rule as calling
+// (socket/socket.js's callUser) — either side being an admin bypasses it,
+// same reasoning as there: admin accounts don't go through the normal
+// interest/accept matchmaking flow with every user they may need to reach.
+// Blocking sits on top of that and is checked first — a block always wins
+// even between two connected/admin users, and the reason code lets the
+// frontend show the right one of "you blocked them" vs "they blocked you"
+// vs "not connected" instead of one generic error.
+async function getMessagingRestriction(senderId, receiverId) {
+    const [blockedByMe, blockedByThem] = await Promise.all([
+        Block.exists({ blocker: senderId, blocked: receiverId }),
+        Block.exists({ blocker: receiverId, blocked: senderId }),
+    ]);
+    if (blockedByMe) return { allowed: false, reason: 'blocked_by_me' };
+    if (blockedByThem) return { allowed: false, reason: 'blocked_by_them' };
+
+    const [sender, receiver] = await Promise.all([
+        User.findById(senderId).select('role'),
+        User.findById(receiverId).select('role'),
+    ]);
+    if (sender?.role === 'admin' || receiver?.role === 'admin') return { allowed: true };
+
+    const connected = await isConnected(senderId, receiverId);
+    return connected ? { allowed: true } : { allowed: false, reason: 'not_connected' };
+}
+
+const RESTRICTION_MESSAGES = {
+    blocked_by_me: 'You have blocked this user',
+    blocked_by_them: 'You are blocked by this user',
+    not_connected: 'You can only message users you are connected with',
+};
 
 // Selected fields when a message quotes another one (swipe-to-reply) — just
 // enough for the quoted preview: text/media to show, and senderId so the
@@ -40,6 +75,15 @@ const sendMessage = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'receiverId and message are required',
+            });
+        }
+
+        const restriction = await getMessagingRestriction(senderId, receiverId);
+        if (!restriction.allowed) {
+            return res.status(403).json({
+                success: false,
+                reason: restriction.reason,
+                message: RESTRICTION_MESSAGES[restriction.reason],
             });
         }
 
@@ -83,6 +127,20 @@ const sendMessageWithFiles = async (req, res) => {
 
         if (!receiverId) {
             return res.status(400).json({ success: false, message: 'receiverId is required' });
+        }
+
+        // Same rule as sendMessage — checked here rather than as upload
+        // middleware for simplicity; the minor cost is that a blocked
+        // attempt's files still made it to Cloudinary before this runs
+        // (multer/uploadChatMedia already ran), which only matters for the
+        // rare rejected case.
+        const restriction = await getMessagingRestriction(senderId, receiverId);
+        if (!restriction.allowed) {
+            return res.status(403).json({
+                success: false,
+                reason: restriction.reason,
+                message: RESTRICTION_MESSAGES[restriction.reason],
+            });
         }
 
         const files = req.files || [];
@@ -158,13 +216,22 @@ const getMessages = async (req, res) => {
             isDeleted: { $ne: true },
         };
 
+        // senderId here is the *viewer* (the route is /:senderId/:receiverId,
+        // always called with the requester's own id first) — "Clear chat" is
+        // per-user, so only their own cutoff ever applies, never the other
+        // side's.
+        const clear = await ChatClear.findOne({ user: sId, otherUser: rId }).select('clearedAt');
+        if (clear) {
+            query.createdAt = { $gt: clear.clearedAt };
+        }
+
         if (before) {
             if (!mongoose.Types.ObjectId.isValid(before)) {
                 return res.status(400).json({ success: false, message: 'Invalid before cursor' });
             }
             const cursorMsg = await Message.findById(before).select('createdAt');
             if (cursorMsg) {
-                query.createdAt = { $lt: cursorMsg.createdAt };
+                query.createdAt = { ...query.createdAt, $lt: cursorMsg.createdAt };
             }
         }
 

@@ -12,6 +12,8 @@ const { initSocket } = require('./socket/socket');
 const connectionRoutes = require('./routes/connectionRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const storyRoutes = require('./routes/storyRoutes');
+const callRoutes = require('./routes/callRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 const { startHighlightPromotion } = require('./utils/storyHighlights');
 
 connectDB();
@@ -34,6 +36,8 @@ const adminRoutes = require('./routes/adminRoutes');
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/stories', storyRoutes);
+app.use('/api/calls', callRoutes);
+app.use('/api/chat', chatRoutes);
 
 
 // =========================
