@@ -47,6 +47,18 @@ router.patch('/read-all', protect, async (req, res) => {
   }
 });
 
+// DELETE /api/notifications — "Clear All". Only touches this collection
+// (view/like/comment) — connection requests/matches have their own
+// accept/decline/withdraw actions and aren't "cleared" the same way.
+router.delete('/', protect, async (req, res) => {
+  try {
+    const result = await Notification.deleteMany({ recipient: req.user._id });
+    res.status(200).json({ success: true, deletedCount: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // DELETE /api/notifications/:id — swipe-to-delete on the Notifications feed.
 // Scoped to { _id, recipient: req.user._id } in one shot rather than a
 // separate find-then-check — deleteOne on a filter that doesn't match (wrong

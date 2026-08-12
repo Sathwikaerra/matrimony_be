@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const generateToken = require('../utils/generateToken');
 const SocketService = require('../services/socketService');
 const { notifyProfileViewed, notifyInterestReceived, sendPushToUser } = require('../services/pushService'); // ← UPDATED
@@ -18,6 +19,9 @@ const registerUser = async (req, res) => {
       email,
       password,
       role = "user",
+      phoneNumber,
+      accountFor,
+      marriageInfo,
     } = req.body;
 
 
@@ -54,7 +58,10 @@ const registerUser = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      role
+      role,
+      phoneNumber,
+      accountFor,
+      marriageInfo,
     });
 
     const token = generateToken(user._id);
@@ -100,14 +107,17 @@ const loginUser = async (req, res) => {
       });
     }
 
-    // Get user with password
-    const user = await User.findOne({ email })
-      .select("+password");
+    // `email` doubles as "identifier" — after the mobile+OTP signup flow,
+    // login is by mobile number + password just as often as by email, so
+    // whatever was typed is matched against either field.
+    const user = await User.findOne({
+      $or: [{ email }, { phoneNumber: email }],
+    }).select("+password");
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "Invalid Email"
+        message: "Invalid Email or Phone Number"
       });
     }
 
@@ -151,6 +161,52 @@ const loginUser = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+// =========================
+// VERIFY PHONE (Firebase Phone Auth)
+// =========================
+// The frontend does the actual OTP round-trip itself via the Firebase
+// client SDK (signInWithPhoneNumber) — no SMS is sent from this backend.
+// This endpoint just verifies the resulting Firebase ID token server-side
+// (never trust a client-asserted "yes I verified it") and confirms the
+// phone number on the token matches the number this account claims,
+// before marking it trusted.
+const { admin: firebaseAdmin } = require('../config/firebaseAdmin');
+
+const verifyPhone = async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ success: false, message: 'idToken is required' });
+    }
+
+    const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+    const verifiedPhone = decoded.phone_number; // e.g. "+919876543210"
+    if (!verifiedPhone) {
+      return res.status(400).json({ success: false, message: 'Token has no verified phone number' });
+    }
+
+    // Loose match — stored phoneNumber may or may not include the country
+    // code depending on what the signup form collected; compare on the
+    // digits only so "+919876543210" still matches "9876543210".
+    const digitsOnly = (s) => (s || '').replace(/\D/g, '');
+    const storedDigits = digitsOnly(req.user.phoneNumber);
+    if (!storedDigits || !digitsOnly(verifiedPhone).endsWith(storedDigits)) {
+      return res.status(400).json({ success: false, message: 'Verified number does not match this account' });
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      req.user._id,
+      { phoneVerified: true },
+      { new: true }
+    ).select('-password');
+
+    res.status(200).json({ success: true, user: updated });
+  } catch (error) {
+    console.error('verifyPhone error:', error.message);
+    res.status(400).json({ success: false, message: 'Invalid or expired verification token' });
   }
 };
 
@@ -341,22 +397,40 @@ const getProfile = async (req, res) => {
     }
 
     // ── Push notification: tell owner their profile was viewed ──────
-    // Only fires when a logged-in user views someone else's profile
+    // Only fires when a logged-in user views someone else's profile.
+    //
+    // Deduped against any still-unread "X viewed your profile" from this
+    // same viewer — without this, a single logical profile view could
+    // create several rows (React StrictMode double-invokes effects in dev;
+    // a drawer/page re-render, a revisit within the same browsing session,
+    // or simple network retries can all hit this endpoint more than once
+    // for what the user experiences as *one* view). Once the existing
+    // notification is read/cleared, the next view creates a fresh one —
+    // this isn't a time-based cooldown, it's "don't pile up duplicates of
+    // the same still-pending notification".
     if (req.user && req.user._id.toString() !== profileId) {
       const viewer = await User.findById(req.user._id).select('name');
       if (viewer) {
-        notifyProfileViewed(
-          profileId,                  // profile owner to notify
-          viewer.name,                // "X viewed your profile"
-          req.user._id.toString()     // click → go to viewer's profile
-        );
-        createNotification({
+        const alreadyNotified = await Notification.exists({
           recipient: profileId,
           sender: req.user._id,
           type: 'view',
-          message: `${viewer.name} viewed your profile`,
-          data: { url: `/profile/${req.user._id}` },
+          isRead: false,
         });
+        if (!alreadyNotified) {
+          notifyProfileViewed(
+            profileId,                  // profile owner to notify
+            viewer.name,                // "X viewed your profile"
+            req.user._id.toString()     // click → go to viewer's profile
+          );
+          createNotification({
+            recipient: profileId,
+            sender: req.user._id,
+            type: 'view',
+            message: `${viewer.name} viewed your profile`,
+            data: { url: `/profile/${req.user._id}` },
+          });
+        }
       }
     }
     // ────────────────────────────────────────────────────────────────
@@ -685,6 +759,7 @@ const getUserComments = async (req, res) => {
 module.exports = {
   registerUser,
   loginUser,
+  verifyPhone,
   getAllUsers,
   searchUsers,
   getProfile,       // ← NEW — add this to your userRoutes.js too

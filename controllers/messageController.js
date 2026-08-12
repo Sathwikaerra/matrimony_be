@@ -3,8 +3,30 @@ const mongoose = require('mongoose');
 const Message  = require('../models/Message');
 const User     = require('../models/User');
 const { notifyNewMessage } = require('../services/pushService'); // ← ADD THIS
-const { createNotification } = require('../services/notificationStore');
 const SocketService = require('../services/socketService');
+
+// Selected fields when a message quotes another one (swipe-to-reply) — just
+// enough for the quoted preview: text/media to show, and senderId so the
+// frontend can label it "You" vs the other person's name without a second
+// nested populate.
+const REPLY_PREVIEW_FIELDS = 'message images videos senderId isDeleted';
+
+// A reply target must actually exist and belong to the same conversation
+// as the two people sending/receiving this new message — otherwise anyone
+// could quote an arbitrary message from an unrelated conversation they're
+// not even part of.
+async function resolveReplyTo(replyTo, senderId, receiverId) {
+    if (!replyTo) return undefined;
+    if (!mongoose.Types.ObjectId.isValid(replyTo)) return undefined;
+    const original = await Message.findOne({
+        _id: replyTo,
+        $or: [
+            { senderId, receiverId },
+            { senderId: receiverId, receiverId: senderId },
+        ],
+    }).select('_id');
+    return original ? original._id : undefined;
+}
 
 // =========================
 // SEND MESSAGE
@@ -12,7 +34,7 @@ const SocketService = require('../services/socketService');
 const sendMessage = async (req, res) => {
     try {
         const senderId = req.user._id.toString(); // from JWT, not client body
-        const { receiverId, message } = req.body;
+        const { receiverId, message, replyTo } = req.body;
 
         if (!receiverId || !message?.trim()) {
             return res.status(400).json({
@@ -25,20 +47,21 @@ const sendMessage = async (req, res) => {
             senderId,
             receiverId,
             message: message.trim(),
+            replyTo: await resolveReplyTo(replyTo, senderId, receiverId),
         });
+        if (newMessage.replyTo) await newMessage.populate('replyTo', REPLY_PREVIEW_FIELDS);
 
         // ── Push notification ─────────────────────────────────────────────
-        // Fire-and-forget (don't await — don't block the response)
+        // Fire-and-forget (don't await — don't block the response). Only the
+        // FCM push (for background/closed-tab delivery) — new messages are
+        // deliberately NOT written to the in-app Notifications feed
+        // (services/notificationStore.js): they already have their own
+        // real-time badge on the Messages nav icon, so a duplicate row in
+        // Notifications was just noise (and per-request, that feed should
+        // only ever show follow/profile-view activity).
         User.findById(senderId).then((sender) => {
             if (sender) {
                 notifyNewMessage(receiverId, sender.name, senderId, message.trim());
-                createNotification({
-                    recipient: receiverId,
-                    sender: senderId,
-                    type: 'message',
-                    message: `${sender.name}: ${message.trim().length > 60 ? message.trim().slice(0, 60) + '…' : message.trim()}`,
-                    data: { url: `/messages/${senderId}` },
-                });
             }
         });
         // ──────────────────────────────────────────────────────────────────
@@ -56,7 +79,7 @@ const sendMessage = async (req, res) => {
 const sendMessageWithFiles = async (req, res) => {
     try {
         const senderId = req.user._id.toString(); // from JWT, not client body
-        const { receiverId, message } = req.body;
+        const { receiverId, message, replyTo } = req.body;
 
         if (!receiverId) {
             return res.status(400).json({ success: false, message: 'receiverId is required' });
@@ -79,9 +102,12 @@ const sendMessageWithFiles = async (req, res) => {
             message: message?.trim() || '',
             images,
             videos,
+            replyTo: await resolveReplyTo(replyTo, senderId, receiverId),
         });
+        if (newMessage.replyTo) await newMessage.populate('replyTo', REPLY_PREVIEW_FIELDS);
 
         // ── Push notification ─────────────────────────────────────────────
+        // Same as sendMessage above — FCM push only, no Notifications-feed row.
         User.findById(senderId).then((sender) => {
             if (!sender) return;
             let preview = message?.trim();
@@ -91,13 +117,6 @@ const sendMessageWithFiles = async (req, res) => {
                 else preview = 'Sent an attachment';
             }
             notifyNewMessage(receiverId, sender.name, senderId, preview);
-            createNotification({
-                recipient: receiverId,
-                sender: senderId,
-                type: 'message',
-                message: `${sender.name}: ${preview}`,
-                data: { url: `/messages/${senderId}` },
-            });
         });
         // ──────────────────────────────────────────────────────────────────
 
@@ -109,11 +128,20 @@ const sendMessageWithFiles = async (req, res) => {
 };
 
 // =========================
-// GET MESSAGES
+// GET MESSAGES  (cursor-paginated — newest page first)
 // =========================
+// Query params:
+//   limit  — page size, defaults to 10 (chat opens showing only the latest 10)
+//   before — a message _id; when present, returns the `limit` messages
+//            immediately older than that message instead of the latest page.
+// Always responds with messages sorted oldest→newest (ready to render
+// top-to-bottom), plus `hasMore` so the frontend knows whether "load older"
+// should keep offering more.
 const getMessages = async (req, res) => {
     try {
         const { senderId, receiverId } = req.params;
+        const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+        const { before } = req.query;
 
         if (!mongoose.Types.ObjectId.isValid(senderId) || !mongoose.Types.ObjectId.isValid(receiverId)) {
             return res.status(400).json({ success: false, message: 'Invalid user ID' });
@@ -122,20 +150,44 @@ const getMessages = async (req, res) => {
         const sId = new mongoose.Types.ObjectId(senderId);
         const rId = new mongoose.Types.ObjectId(receiverId);
 
-        const messages = await Message.find({
+        const query = {
             $or: [
                 { senderId: sId, receiverId: rId },
                 { senderId: rId, receiverId: sId },
             ],
             isDeleted: { $ne: true },
-        }).sort({ createdAt: 1 });
+        };
 
+        if (before) {
+            if (!mongoose.Types.ObjectId.isValid(before)) {
+                return res.status(400).json({ success: false, message: 'Invalid before cursor' });
+            }
+            const cursorMsg = await Message.findById(before).select('createdAt');
+            if (cursorMsg) {
+                query.createdAt = { $lt: cursorMsg.createdAt };
+            }
+        }
+
+        // Fetch newest-first so `limit` always gives the page closest to the
+        // cursor (or closest to "now" on the first page), then reverse to
+        // ascending for rendering.
+        const page = await Message.find(query)
+            .sort({ createdAt: -1 })
+            .limit(limit + 1) // one extra, just to detect hasMore
+            .populate('replyTo', REPLY_PREVIEW_FIELDS);
+
+        const hasMore = page.length > limit;
+        const messages = page.slice(0, limit).reverse();
+
+        // Mark-as-read stays scoped to the whole conversation, not just this
+        // page — opening the chat should clear unread state regardless of
+        // which page happens to be visible first.
         await Message.updateMany(
             { senderId: rId, receiverId: sId, isRead: { $ne: true } },
             { isRead: true }
         );
 
-        res.status(200).json({ success: true, messages });
+        res.status(200).json({ success: true, messages, hasMore });
     } catch (error) {
         console.error('getMessages error:', error.message);
         res.status(500).json({ success: false, message: error.message });
@@ -299,6 +351,10 @@ const getRecentChats = async (req, res) => {
                         city:       '$userInfo.city',
                         occupation: '$userInfo.occupation',
                         lastSeen:   '$userInfo.lastSeen',
+                        // Needed so the frontend can bypass the accepted-connection
+                        // gate on the call button for admin accounts — see
+                        // isConnectedTo() in Messages.jsx.
+                        role:       '$userInfo.role',
                     },
                 },
             },

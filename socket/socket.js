@@ -198,13 +198,28 @@ const initSocket = (httpServer) => {
           return;
         }
 
-        const allowed = await isConnected(from, to);
+        // Admin accounts don't go through the normal interest/accept
+        // matchmaking flow with every user, so most admin↔user pairs have no
+        // accepted Connection row — that was silently blocking admin-
+        // initiated calls even though messaging (no such gate) worked fine.
+        // Either side being an admin bypasses the connection requirement.
+        const [fromUser, toUser] = await Promise.all([
+          User.findById(from).select("role photos"),
+          User.findById(to).select("role"),
+        ]);
+        const eitherIsAdmin = fromUser?.role === "admin" || toUser?.role === "admin";
+
+        const allowed = eitherIsAdmin || (await isConnected(from, to));
         if (!allowed) {
           socket.emit("callUnauthorized", { reason: "Not connected with this user" });
           return;
         }
 
-        io.to(to.toString()).emit("incomingCall", { from, signal, callerName });
+        // Looked up server-side (not trusted from the client) so it can't be
+        // spoofed — used by the full-screen incoming-call UI.
+        const callerPhoto = fromUser?.photos?.[0] || null;
+
+        io.to(to.toString()).emit("incomingCall", { from, signal, callerName, callerPhoto });
         console.log(`📞 Call from ${from} to ${to}`);
       } catch (err) {
         console.log("❌ callUser error:", err.message);

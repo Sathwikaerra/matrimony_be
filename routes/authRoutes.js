@@ -9,9 +9,10 @@ const router = express.Router();
 const {
     registerUser,
     loginUser,
+    verifyPhone,
     getAllUsers,
     searchUsers,
-    
+
 getProfile,
     updateProfile,uploadPhoto, deletePhoto, reorderPhotos,
       likeUser,
@@ -29,6 +30,11 @@ router.put   ('/photos/reorder', protect, reorderPhotos);
 
 router.post('/signup', registerUser);
 router.post('/login', loginUser);
+// Called right after signup once the frontend has completed the Firebase
+// Phone Auth OTP round-trip — protect-gated because it needs to know which
+// account to mark verified (the freshly-created user is already logged in
+// by this point in the signup wizard).
+router.post('/verify-phone', protect, verifyPhone);
 router.get('/users',protect, getAllUsers);
 router.get('/search', protect, searchUsers);
 router.put('/me',      protect, updateProfile);

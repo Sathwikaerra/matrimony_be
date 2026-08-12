@@ -10,6 +10,11 @@ const messageSchema = new mongoose.Schema({
   images:     [{ type: String }], // Cloudinary URLs
   videos:     [{ type: String }], // Cloudinary URLs
   isRead:     { type: Boolean, default: false },   // ← add this
+  // Instagram/WhatsApp-style "reply to this message" — a real ref (not a
+  // denormalized text snapshot) so an edit-in-place scenario would stay
+  // accurate; soft-deleted originals still resolve fine via populate, the
+  // frontend just renders them as "Original message deleted".
+  replyTo:    { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
   // Soft delete — either party can delete a message, but the row is kept
   // (flagged, not removed) for records. Hidden from both sides' chat view
   // once deleted, same as before, just no longer destroying the data.
