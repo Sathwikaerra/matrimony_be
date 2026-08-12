@@ -9,6 +9,9 @@ let io;
 // userId -> socketId
 const userSocketMap = {};
 
+// userId -> receiverId (the user whose chat screen they currently have open)
+const userActiveChatMap = {};
+
 const getOnlineUsers = () => Object.keys(userSocketMap);
 
 // Deployed frontend URL(s) come from CLIENT_URL (comma-separated if there's
@@ -176,6 +179,54 @@ const initSocket = (httpServer) => {
     });
 
     // ─────────────────────────────────────────────
+    // Enter Chat (user opens a chat room)
+    // ─────────────────────────────────────────────
+    socket.on("enterChat", ({ senderId, receiverId }) => {
+      try {
+        if (!senderId || !receiverId) return;
+        const uidStr = senderId.toString();
+        const ridStr = receiverId.toString();
+
+        // Check if they were already in another chat, and notify the old partner they left
+        const oldReceiverId = userActiveChatMap[uidStr];
+        if (oldReceiverId && oldReceiverId !== ridStr) {
+          io.to(oldReceiverId).emit("partnerLeftChat", { userId: uidStr });
+        }
+
+        userActiveChatMap[uidStr] = ridStr;
+        console.log(`🧸 User ${uidStr} entered chat with ${ridStr}`);
+
+        // Notify the new partner that this user has entered their chat
+        io.to(ridStr).emit("partnerEnteredChat", { userId: uidStr });
+
+        // If the new partner is already in this user's chat, notify this user back
+        if (userActiveChatMap[ridStr] === uidStr) {
+          socket.emit("partnerEnteredChat", { userId: ridStr });
+        }
+      } catch (err) {
+        console.log("❌ enterChat error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Leave Chat (user closes or switches chat room)
+    // ─────────────────────────────────────────────
+    socket.on("leaveChat", ({ senderId, receiverId }) => {
+      try {
+        if (!senderId) return;
+        const uidStr = senderId.toString();
+        const oldReceiverId = userActiveChatMap[uidStr];
+        if (oldReceiverId) {
+          io.to(oldReceiverId).emit("partnerLeftChat", { userId: uidStr });
+          delete userActiveChatMap[uidStr];
+          console.log(`🧸 User ${uidStr} left chat with ${oldReceiverId}`);
+        }
+      } catch (err) {
+        console.log("❌ leaveChat error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
     // Video Call — Signaling only, media never touches the server.
     // Calls are gated to accepted connections, same as everywhere else.
     //
@@ -274,6 +325,14 @@ const initSocket = (httpServer) => {
         io.emit("onlineUsers", getOnlineUsers());
 
         console.log("🟢 Online users:", getOnlineUsers());
+
+        // Clean up active chat presence on disconnect
+        const oldReceiverId = userActiveChatMap[userId];
+        if (oldReceiverId) {
+          io.to(oldReceiverId).emit("partnerLeftChat", { userId });
+          delete userActiveChatMap[userId];
+          console.log(`🧸 User ${userId} active chat cleaned up on disconnect`);
+        }
 
         // Record when they were last online, for the chat header's
         // "Last seen …" line. Fire-and-forget — nothing downstream needs to
