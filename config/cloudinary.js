@@ -55,4 +55,41 @@ const uploadStoryMedia = multer({
     limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia };
+// ── Locker documents (private, permission-gated storage) ───────────────────
+// Uploaded as `type: 'authenticated'` so the raw Cloudinary asset is NOT
+// publicly fetchable by URL — viewing requires a signed, time-limited URL
+// minted per-request after the app-level permission check (see
+// lockerController.getDocumentUrl). Broader format list than the other
+// uploaders since these are ID proofs / certificates, not just photos.
+const lockerStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/locker',
+        resource_type:   'auto',
+        type:            'authenticated',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx'],
+    },
+});
+
+const uploadLockerDocument = multer({
+    storage: lockerStorage,
+    limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+// ── Announcement images (admin broadcast banners) ───────────────────────────
+// Image-only, no forced crop — banners come in whatever aspect ratio the
+// admin's creative was made in, same reasoning as chat/story media.
+const announcementStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/announcements',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    },
+});
+
+const uploadAnnouncementImage = multer({
+    storage: announcementStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadLockerDocument, uploadAnnouncementImage };

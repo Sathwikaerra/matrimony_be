@@ -24,6 +24,37 @@ async function sendPushToUser(userId, payload) {
   }
 }
 
+// ─── Broadcast (admin announcements) ────────────────────────────────────────────
+// Same underlying sendPushNotification as sendPushToUser, but fanned out to
+// every subscribed device instead of one user's — paged in chunks of 500
+// since that's FCM's own hard limit per sendEachForMulticast call, not an
+// arbitrary choice here.
+const FCM_BATCH_SIZE = 500;
+
+async function sendPushToAllExcept(excludeUserId, payload) {
+  try {
+    const tokens = await FCMToken.find(
+      excludeUserId ? { userId: { $ne: excludeUserId } } : {}
+    ).select('token');
+    if (!tokens.length) return;
+
+    const tokenList = tokens.map((t) => t.token);
+    for (let i = 0; i < tokenList.length; i += FCM_BATCH_SIZE) {
+      const batch = tokenList.slice(i, i + FCM_BATCH_SIZE);
+      await sendPushNotification(batch, {
+        title: payload.title,
+        body: payload.body,
+        data: {
+          type: payload.type || 'announcement',
+          ...payload.data,
+        },
+      });
+    }
+  } catch (err) {
+    console.error('Broadcast push send error:', err.message);
+  }
+}
+
 // ─── Notification helpers ───────────────────────────────────────────────────────
 
 /**
@@ -78,11 +109,26 @@ async function notifyInterestReceived(receiverId, senderName, senderId) {
   });
 }
 
+/**
+ * Notify a connection when the locker owner shares a document with them
+ */
+async function notifyLockerShared(recipientId, ownerName, ownerId, documentTitle) {
+  await sendPushToUser(recipientId, {
+    title: `🔒 Document shared with you`,
+    body: `${ownerName} gave you access to "${documentTitle}"`,
+    type: 'locker_share',
+    senderId: ownerId,
+    data: { url: `/locker/shared` },
+  });
+}
+
 module.exports = {
   sendPushToUser,
+  sendPushToAllExcept,
   notifyNewMessage,
   notifyNewMatch,
   notifyProfileViewed,
   notifyInterestReceived,
+  notifyLockerShared,
 };
 

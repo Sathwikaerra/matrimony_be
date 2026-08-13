@@ -4,12 +4,21 @@ const generateToken = require('../utils/generateToken');
 const SocketService = require('../services/socketService');
 const { notifyProfileViewed, notifyInterestReceived, sendPushToUser } = require('../services/pushService'); // ← UPDATED
 const { createNotification } = require('../services/notificationStore');
+const { admin: firebaseAdmin } = require('../config/firebaseAdmin');
 
 // =========================
 // SIGNUP USER
 // =========================
 const bcrypt = require("bcryptjs");
 
+// OTP is now the actual signup gate, not an optional add-on verified after
+// the account already exists (that was the old verify-phone-after-signup
+// flow — still kept below for re-verifying a changed number later, but
+// signup itself requires proof up front). The frontend completes the
+// Firebase Phone Auth round-trip itself and hands us the resulting ID
+// token; we verify it server-side and derive the phone number from IT,
+// never from a client-submitted phoneNumber field — so what's stored is
+// guaranteed to be the number that was actually OTP-verified.
 const registerUser = async (req, res) => {
 
   try {
@@ -19,7 +28,7 @@ const registerUser = async (req, res) => {
       email,
       password,
       role = "user",
-      phoneNumber,
+      idToken,
       accountFor,
       marriageInfo,
     } = req.body;
@@ -33,13 +42,49 @@ const registerUser = async (req, res) => {
       });
     }
 
-    // Check existing user
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone verification is required to create an account"
+      });
+    }
+
+    let verifiedPhone;
+    try {
+      const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+      verifiedPhone = decoded.phone_number;
+    } catch (err) {
+      console.error('registerUser idToken verify error:', err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired phone verification — please verify your number again"
+      });
+    }
+    if (!verifiedPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification token has no phone number attached"
+      });
+    }
+
+    // Check existing user — by email, and separately by the verified phone
+    // number (no schema-level unique index on phoneNumber, since existing
+    // rows may already have blank/duplicate values; this is an
+    // application-level check instead).
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
         message: "User already exists"
+      });
+    }
+
+    const existingPhone = await User.findOne({ phoneNumber: verifiedPhone });
+    if (existingPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "An account already exists with this phone number — try logging in instead"
       });
     }
 
@@ -59,7 +104,8 @@ const registerUser = async (req, res) => {
       email,
       password: hashedPassword,
       role,
-      phoneNumber,
+      phoneNumber: verifiedPhone,
+      phoneVerified: true,
       accountFor,
       marriageInfo,
     });
@@ -172,9 +218,10 @@ const loginUser = async (req, res) => {
 // This endpoint just verifies the resulting Firebase ID token server-side
 // (never trust a client-asserted "yes I verified it") and confirms the
 // phone number on the token matches the number this account claims,
-// before marking it trusted.
-const { admin: firebaseAdmin } = require('../config/firebaseAdmin');
-
+// before marking it trusted. Now mainly used for re-verifying a *changed*
+// number later (from Settings) — signup itself verifies idToken directly
+// in registerUser above, since there's no logged-in account yet at that
+// point for this protect-gated endpoint to attach to.
 const verifyPhone = async (req, res) => {
   try {
     const { idToken } = req.body;
@@ -211,9 +258,17 @@ const verifyPhone = async (req, res) => {
 };
 
 // =========================
-// GET ALL USERS (with pagination)
+// GET ALL USERS (with pagination) — real match scoring
 // =========================
+// Previously showed every other user regardless of gender, sorted only by
+// signup recency, with a dead `matchScore` field the frontend replaced with
+// Math.random(). Now: filters to the opposite gender (only when both are
+// set, so accounts that haven't filled in gender yet don't just vanish from
+// everyone's feed), and scores + sorts by calculateMatchScore using the
+// viewer's Survey (see models/Survey.js) against each candidate's Survey.
+// Survey docs are batch-fetched (one query for the whole page), not N+1.
 const calculateMatchScore = require("../utils/calculateMatchScore");
+const Survey = require("../models/Survey");
 const getAllUsers = async (req, res) => {
   try {
 
@@ -221,24 +276,39 @@ const getAllUsers = async (req, res) => {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 5;
 
-    const skip = (page - 1) * limit;
+    const currentUser = req.user;
 
-    // ✅ Fetch users
-    const users = await User.find({
-      _id: { $ne: req.user._id }
-    })
-      .populate("comments.user", "name photos")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    const filter = { _id: { $ne: currentUser._id } };
+    if (currentUser.gender) {
+      // $or lets through candidates whose gender isn't set yet too — this
+      // is "don't show the same gender" gating, not "hide incomplete
+      // profiles", so accounts still filling in Profile.jsx should still
+      // surface rather than disappearing from every feed.
+      filter.$or = [{ gender: { $ne: currentUser.gender } }, { gender: { $exists: false } }, { gender: '' }];
+    }
 
-    // ✅ Add likesCount + isLiked
-    const modifiedUsers = users.map((user) => {
+    // ✅ Score + sort ALL matching candidates, then slice the page — a true
+    // "best matches first" feed needs the ranking done before pagination
+    // cuts it up, not per-page (which would only reorder within whatever
+    // createdAt-window happened to land on this page). Matrimony-app scale
+    // (hundreds–low-thousands of candidates, not social-network scale)
+    // makes fetching the full filtered set here reasonable.
+    const allCandidates = await User.find(filter).populate("comments.user", "name photos");
+
+    const viewerSurvey = await Survey.findOne({ user: currentUser._id });
+    const candidateSurveys = await Survey.find({ user: { $in: allCandidates.map(u => u._id) } });
+    const surveyByUserId = new Map(candidateSurveys.map(s => [s.user.toString(), s]));
+
+    const scoredUsers = allCandidates.map((user) => {
 
       const likesCount = user.likes.length;
 
       const isLiked = user.likes.some(
         (id) => id.toString() === req.user._id.toString()
+      );
+
+      const matchScore = calculateMatchScore(
+        currentUser, viewerSurvey, user, surveyByUserId.get(user._id.toString())
       );
 
       return {
@@ -247,13 +317,19 @@ const getAllUsers = async (req, res) => {
         likesCount,
 
         isLiked,
+
+        matchScore,
       };
     });
 
-    // ✅ Total users count
-    const totalUsers = await User.countDocuments({
-      _id: { $ne: req.user._id }
-    });
+    // Highest match first; createdAt desc as the tiebreaker for equal scores
+    // (e.g. everyone still at score 0 pre-survey) so the order stays stable
+    // and matches the old "newest first" behavior in that case.
+    scoredUsers.sort((a, b) => b.matchScore - a.matchScore || new Date(b.createdAt) - new Date(a.createdAt));
+
+    const totalUsers = scoredUsers.length;
+    const skip = (page - 1) * limit;
+    const modifiedUsers = scoredUsers.slice(skip, skip + limit);
 
     // ✅ Response
     res.status(200).json({
@@ -274,86 +350,7 @@ const getAllUsers = async (req, res) => {
     });
   }
 };
-// const getAllUsers = async (req, res) => {
 
-//     try {
-
-//         const page = Number(req.query.page) || 1;
-//         const limit = Number(req.query.limit) || 5;
-//         const skip = (page - 1) * limit;
-
-//         // ─── CURRENT LOGGED USER ─────────────────────
-//         const currentUser = await User.findById(req.user._id);
-
-//         if (!currentUser) {
-//             return res.status(404).json({
-//                 success: false,
-//                 message: "Current user not found"
-//             });
-//         }
-
-//         // ─── FETCH USERS ─────────────────────────────
-//         const users = await User.find({
-//             _id: { $ne: currentUser._id },
-//             gender: { $ne: currentUser.gender }
-//         })
-//         .populate("comments.user", "name photos")
-//         .sort({ createdAt: -1 })
-//         .skip(skip)
-//         .limit(limit);
-
-//         // ─── CALCULATE MATCH SCORE + SOCIAL DATA ─────
-//         const usersWithScore = users.map((user) => {
-
-//             const matchScore = calculateMatchScore(currentUser, user);
-
-//             const isLiked = user.likes?.some(
-//                 (id) => id.toString() === currentUser._id.toString()
-//             );
-
-//             return {
-//                 ...user.toObject(),
-//                 matchScore,
-//                 likesCount:      user.likes?.length || 0,
-//                 isLiked,
-//                 likes:           user.likes || [],
-//                 commentsCount:   user.comments?.length || 0,
-//                 comments:        user.comments || [],
-//                 latestComments:  user.comments?.slice(-3).reverse() || [],
-//             };
-//         });
-
-//         // ─── FILTER OUT ZERO SCORE USERS ─────────────  ← ADDED
-//         const filteredUsers = usersWithScore.filter(
-//             (user) => user.matchScore > 0
-//         );
-
-//         // ─── SORT BY MATCH SCORE DESC ─────────────────
-//         filteredUsers.sort((a, b) => b.matchScore - a.matchScore);
-
-//         // ─── TOTAL USERS ─────────────────────────────
-//         const totalUsers = await User.countDocuments({
-//             _id: { $ne: currentUser._id },
-//             gender: { $ne: currentUser.gender }
-//         });
-
-//         // ─── RESPONSE ────────────────────────────────
-//         res.status(200).json({
-//             success: true,
-//             currentPage: page,
-//             totalPages: Math.ceil(totalUsers / limit),
-//             totalUsers,
-//             users: filteredUsers                        // ← was usersWithScore
-//         });
-
-//     } catch (error) {
-//         console.log(error);
-//         res.status(500).json({
-//             success: false,
-//             message: error.message
-//         });
-//     }
-// };
 // =========================
 // SEARCH USERS
 // =========================

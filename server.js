@@ -14,6 +14,9 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const storyRoutes = require('./routes/storyRoutes');
 const callRoutes = require('./routes/callRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const lockerRoutes = require('./routes/lockerRoutes');
+const surveyRoutes = require('./routes/surveyRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
 const { startHighlightPromotion } = require('./utils/storyHighlights');
 
 connectDB();
@@ -38,6 +41,9 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/stories', storyRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/locker', lockerRoutes);
+app.use('/api/survey', surveyRoutes);
+app.use('/api/announcements', announcementRoutes);
 
 
 // =========================

@@ -376,8 +376,14 @@ const getRecentChats = async (req, res) => {
                             '$senderId',
                         ],
                     },
-                    lastMessage: { $first: '$message'   },
-                    lastTime:    { $first: '$createdAt' },
+                    lastMessage:   { $first: '$message'   },
+                    lastTime:      { $first: '$createdAt' },
+                    // Who sent the most recent message, and whether *they've*
+                    // read it yet — lets the inbox list show read-receipt
+                    // ticks (only meaningful when it was me who sent it)
+                    // without a second round-trip per conversation.
+                    lastSenderId:  { $first: '$senderId'  },
+                    lastMessageIsRead: { $first: '$isRead' },
                     unreadCount: {
                         $sum: {
                             $cond: [
@@ -410,6 +416,8 @@ const getRecentChats = async (req, res) => {
                     _id:         0,
                     lastMessage: 1,
                     lastTime:    1,
+                    lastSenderId: 1,
+                    lastMessageIsRead: 1,
                     unreadCount: 1,
                     user: {
                         _id:        '$userInfo._id',
