@@ -280,11 +280,13 @@ const getAllUsers = async (req, res) => {
 
     const filter = { _id: { $ne: currentUser._id } };
     if (currentUser.gender) {
-      // $or lets through candidates whose gender isn't set yet too — this
-      // is "don't show the same gender" gating, not "hide incomplete
-      // profiles", so accounts still filling in Profile.jsx should still
-      // surface rather than disappearing from every feed.
-      filter.$or = [{ gender: { $ne: currentUser.gender } }, { gender: { $exists: false } }, { gender: '' }];
+      if (currentUser.gender === 'Male') {
+        filter.gender = 'Female';
+      } else if (currentUser.gender === 'Female') {
+        filter.gender = 'Male';
+      } else {
+        filter.gender = { $ne: currentUser.gender, $nin: ['', null], $exists: true };
+      }
     }
 
     // ✅ Score + sort ALL matching candidates, then slice the page — a true
