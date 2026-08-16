@@ -1,10 +1,14 @@
-const User = require('../models/User');
-const Notification = require('../models/Notification');
-const generateToken = require('../utils/generateToken');
-const SocketService = require('../services/socketService');
-const { notifyProfileViewed, notifyInterestReceived, sendPushToUser } = require('../services/pushService'); // ← UPDATED
-const { createNotification } = require('../services/notificationStore');
-const { admin: firebaseAdmin } = require('../config/firebaseAdmin');
+const User = require("../models/User");
+const Notification = require("../models/Notification");
+const generateToken = require("../utils/generateToken");
+const SocketService = require("../services/socketService");
+const {
+  notifyProfileViewed,
+  notifyInterestReceived,
+  sendPushToUser,
+} = require("../services/pushService"); // ← UPDATED
+const { createNotification } = require("../services/notificationStore");
+const { admin: firebaseAdmin } = require("../config/firebaseAdmin");
 
 // =========================
 // SIGNUP USER
@@ -19,86 +23,173 @@ const bcrypt = require("bcryptjs");
 // token; we verify it server-side and derive the phone number from IT,
 // never from a client-submitted phoneNumber field — so what's stored is
 // guaranteed to be the number that was actually OTP-verified.
+// const registerUser = async (req, res) => {
+
+//   try {
+
+//     const {
+//       name,
+//       email,
+//       password,
+//       role = "user",
+//       idToken,
+//       accountFor,
+//       marriageInfo,
+//     } = req.body;
+
+//     if (!name || !email || !password) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Please fill all fields"
+//       });
+//     }
+
+//     if (!idToken) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Phone verification is required to create an account"
+//       });
+//     }
+
+//     let verifiedPhone;
+//     try {
+//       const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+//       verifiedPhone = decoded.phone_number;
+//     } catch (err) {
+//       console.error('registerUser idToken verify error:', err.message);
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid or expired phone verification — please verify your number again"
+//       });
+//     }
+//     if (!verifiedPhone) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Verification token has no phone number attached"
+//       });
+//     }
+
+//     // Check existing user — by email, and separately by the verified phone
+//     // number (no schema-level unique index on phoneNumber, since existing
+//     // rows may already have blank/duplicate values; this is an
+//     // application-level check instead).
+//     const existingUser = await User.findOne({ email });
+
+//     if (existingUser) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "User already exists"
+//       });
+//     }
+
+//     const existingPhone = await User.findOne({ phoneNumber: verifiedPhone });
+//     if (existingPhone) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "An account already exists with this phone number — try logging in instead"
+//       });
+//     }
+
+//     // ─── HASH PASSWORD ─────────────────────
+
+//     const salt = await bcrypt.genSalt(10);
+
+//     const hashedPassword = await bcrypt.hash(
+//       password,
+//       salt
+//     );
+
+//     // ─── CREATE USER ───────────────────────
+
+//     const user = await User.create({
+//       name,
+//       email,
+//       password: hashedPassword,
+//       role,
+//       phoneNumber: verifiedPhone,
+//       phoneVerified: true,
+//       accountFor,
+//       marriageInfo,
+//     });
+
+//     const token = generateToken(user._id);
+
+//     SocketService.emitNewUserRegistration(user);
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Signup Successful",
+//       token,
+//       user: {
+//         id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role
+//       }
+//     });
+
+//   } catch (error) {
+
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
 const registerUser = async (req, res) => {
-
   try {
-
     const {
       name,
       email,
       password,
       role = "user",
-      idToken,
+      phoneNumber,
       accountFor,
       marriageInfo,
     } = req.body;
 
-
-
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !phoneNumber) {
       return res.status(400).json({
         success: false,
-        message: "Please fill all fields"
+        message: "Please fill all fields",
       });
     }
 
-    if (!idToken) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone verification is required to create an account"
-      });
-    }
+    // TEMPORARY:
+    // Firebase phone verification is bypassed during development.
+    // Mobile app verifies the test OTP 123456 locally.
+    const verifiedPhone = phoneNumber;
 
-    let verifiedPhone;
-    try {
-      const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
-      verifiedPhone = decoded.phone_number;
-    } catch (err) {
-      console.error('registerUser idToken verify error:', err.message);
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired phone verification — please verify your number again"
-      });
-    }
-    if (!verifiedPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Verification token has no phone number attached"
-      });
-    }
-
-    // Check existing user — by email, and separately by the verified phone
-    // number (no schema-level unique index on phoneNumber, since existing
-    // rows may already have blank/duplicate values; this is an
-    // application-level check instead).
+    // Check existing user by email
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "User already exists"
+        message: "User already exists",
       });
     }
 
-    const existingPhone = await User.findOne({ phoneNumber: verifiedPhone });
+    // Check existing user by phone
+    const existingPhone = await User.findOne({
+      phoneNumber: verifiedPhone,
+    });
+
     if (existingPhone) {
       return res.status(400).json({
         success: false,
-        message: "An account already exists with this phone number — try logging in instead"
+        message:
+          "An account already exists with this phone number — try logging in instead",
       });
     }
 
-    // ─── HASH PASSWORD ─────────────────────
-
+    // HASH PASSWORD
     const salt = await bcrypt.genSalt(10);
 
-    const hashedPassword = await bcrypt.hash(
-      password,
-      salt
-    );
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // ─── CREATE USER ───────────────────────
-
+    // CREATE USER
     const user = await User.create({
       name,
       email,
@@ -114,7 +205,7 @@ const registerUser = async (req, res) => {
 
     SocketService.emitNewUserRegistration(user);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Signup Successful",
       token,
@@ -122,15 +213,15 @@ const registerUser = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+      },
     });
-
   } catch (error) {
+    console.error("registerUser error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -139,17 +230,14 @@ const registerUser = async (req, res) => {
 // LOGIN USER
 // =========================
 
-
 const loginUser = async (req, res) => {
-
   try {
-
     const { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: "Please fill all fields"
+        message: "Please fill all fields",
       });
     }
 
@@ -163,20 +251,17 @@ const loginUser = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "Invalid Email or Phone Number"
+        message: "Invalid Email or Phone Number",
       });
     }
 
     // Compare hashed password
-    const isMatch = await bcrypt.compare(
-      password,
-      user.password
-    );
+    const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: "Invalid Password"
+        message: "Invalid Password",
       });
     }
 
@@ -195,17 +280,15 @@ const loginUser = async (req, res) => {
         photos: user.photos,
         city: user.city,
         occupation: user.occupation,
-        role: user.role
-      }
+        role: user.role,
+      },
     });
-
   } catch (error) {
-
     console.log(error);
 
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -226,34 +309,51 @@ const verifyPhone = async (req, res) => {
   try {
     const { idToken } = req.body;
     if (!idToken) {
-      return res.status(400).json({ success: false, message: 'idToken is required' });
+      return res
+        .status(400)
+        .json({ success: false, message: "idToken is required" });
     }
 
     const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
     const verifiedPhone = decoded.phone_number; // e.g. "+919876543210"
     if (!verifiedPhone) {
-      return res.status(400).json({ success: false, message: 'Token has no verified phone number' });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Token has no verified phone number",
+        });
     }
 
     // Loose match — stored phoneNumber may or may not include the country
     // code depending on what the signup form collected; compare on the
     // digits only so "+919876543210" still matches "9876543210".
-    const digitsOnly = (s) => (s || '').replace(/\D/g, '');
+    const digitsOnly = (s) => (s || "").replace(/\D/g, "");
     const storedDigits = digitsOnly(req.user.phoneNumber);
     if (!storedDigits || !digitsOnly(verifiedPhone).endsWith(storedDigits)) {
-      return res.status(400).json({ success: false, message: 'Verified number does not match this account' });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Verified number does not match this account",
+        });
     }
 
     const updated = await User.findByIdAndUpdate(
       req.user._id,
       { phoneVerified: true },
-      { new: true }
-    ).select('-password');
+      { new: true },
+    ).select("-password");
 
     res.status(200).json({ success: true, user: updated });
   } catch (error) {
-    console.error('verifyPhone error:', error.message);
-    res.status(400).json({ success: false, message: 'Invalid or expired verification token' });
+    console.error("verifyPhone error:", error.message);
+    res
+      .status(400)
+      .json({
+        success: false,
+        message: "Invalid or expired verification token",
+      });
   }
 };
 
@@ -271,7 +371,6 @@ const calculateMatchScore = require("../utils/calculateMatchScore");
 const Survey = require("../models/Survey");
 const getAllUsers = async (req, res) => {
   try {
-
     // ✅ Pagination
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 5;
@@ -280,12 +379,16 @@ const getAllUsers = async (req, res) => {
 
     const filter = { _id: { $ne: currentUser._id } };
     if (currentUser.gender) {
-      if (currentUser.gender === 'Male') {
-        filter.gender = 'Female';
-      } else if (currentUser.gender === 'Female') {
-        filter.gender = 'Male';
+      if (currentUser.gender === "Male") {
+        filter.gender = "Female";
+      } else if (currentUser.gender === "Female") {
+        filter.gender = "Male";
       } else {
-        filter.gender = { $ne: currentUser.gender, $nin: ['', null], $exists: true };
+        filter.gender = {
+          $ne: currentUser.gender,
+          $nin: ["", null],
+          $exists: true,
+        };
       }
     }
 
@@ -295,22 +398,31 @@ const getAllUsers = async (req, res) => {
     // createdAt-window happened to land on this page). Matrimony-app scale
     // (hundreds–low-thousands of candidates, not social-network scale)
     // makes fetching the full filtered set here reasonable.
-    const allCandidates = await User.find(filter).populate("comments.user", "name photos");
+    const allCandidates = await User.find(filter).populate(
+      "comments.user",
+      "name photos",
+    );
 
     const viewerSurvey = await Survey.findOne({ user: currentUser._id });
-    const candidateSurveys = await Survey.find({ user: { $in: allCandidates.map(u => u._id) } });
-    const surveyByUserId = new Map(candidateSurveys.map(s => [s.user.toString(), s]));
+    const candidateSurveys = await Survey.find({
+      user: { $in: allCandidates.map((u) => u._id) },
+    });
+    const surveyByUserId = new Map(
+      candidateSurveys.map((s) => [s.user.toString(), s]),
+    );
 
     const scoredUsers = allCandidates.map((user) => {
-
       const likesCount = user.likes.length;
 
       const isLiked = user.likes.some(
-        (id) => id.toString() === req.user._id.toString()
+        (id) => id.toString() === req.user._id.toString(),
       );
 
       const matchScore = calculateMatchScore(
-        currentUser, viewerSurvey, user, surveyByUserId.get(user._id.toString())
+        currentUser,
+        viewerSurvey,
+        user,
+        surveyByUserId.get(user._id.toString()),
       );
 
       return {
@@ -327,7 +439,11 @@ const getAllUsers = async (req, res) => {
     // Highest match first; createdAt desc as the tiebreaker for equal scores
     // (e.g. everyone still at score 0 pre-survey) so the order stays stable
     // and matches the old "newest first" behavior in that case.
-    scoredUsers.sort((a, b) => b.matchScore - a.matchScore || new Date(b.createdAt) - new Date(a.createdAt));
+    scoredUsers.sort(
+      (a, b) =>
+        b.matchScore - a.matchScore ||
+        new Date(b.createdAt) - new Date(a.createdAt),
+    );
 
     const totalUsers = scoredUsers.length;
     const skip = (page - 1) * limit;
@@ -341,9 +457,7 @@ const getAllUsers = async (req, res) => {
       totalUsers,
       users: modifiedUsers,
     });
-
   } catch (error) {
-
     console.log(error);
 
     res.status(500).json({
@@ -358,16 +472,15 @@ const getAllUsers = async (req, res) => {
 // =========================
 const searchUsers = async (req, res) => {
   try {
-
-    console.log("search hitttt")
+    console.log("search hitttt");
     const search = req.query.search || "";
 
     const users = await User.find({
       _id: { $ne: req.user?._id },
       $or: [
         { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } }
-      ]
+        { email: { $regex: search, $options: "i" } },
+      ],
     }).limit(5);
 
     res.status(200).json({ success: true, users });
@@ -382,16 +495,16 @@ const searchUsers = async (req, res) => {
 // =========================
 const getProfile = async (req, res) => {
   try {
-    const { id: profileId } = req.params;  // rename id → profileId inside controller
+    const { id: profileId } = req.params; // rename id → profileId inside controller
 
-    console.log("search uer hitttttttttttttt")
+    console.log("search uer hitttttttttttttt");
 
-    const profile = await User.findById(profileId).select('-password');
+    const profile = await User.findById(profileId).select("-password");
 
     if (!profile) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -408,24 +521,24 @@ const getProfile = async (req, res) => {
     // this isn't a time-based cooldown, it's "don't pile up duplicates of
     // the same still-pending notification".
     if (req.user && req.user._id.toString() !== profileId) {
-      const viewer = await User.findById(req.user._id).select('name');
+      const viewer = await User.findById(req.user._id).select("name");
       if (viewer) {
         const alreadyNotified = await Notification.exists({
           recipient: profileId,
           sender: req.user._id,
-          type: 'view',
+          type: "view",
           isRead: false,
         });
         if (!alreadyNotified) {
           notifyProfileViewed(
-            profileId,                  // profile owner to notify
-            viewer.name,                // "X viewed your profile"
-            req.user._id.toString()     // click → go to viewer's profile
+            profileId, // profile owner to notify
+            viewer.name, // "X viewed your profile"
+            req.user._id.toString(), // click → go to viewer's profile
           );
           createNotification({
             recipient: profileId,
             sender: req.user._id,
-            type: 'view',
+            type: "view",
             message: `${viewer.name} viewed your profile`,
             data: { url: `/profile/${req.user._id}` },
           });
@@ -448,20 +561,36 @@ const updateProfile = async (req, res) => {
     const userId = req.user._id;
 
     const {
-      name, phoneNumber, gender, dateOfBirth,
-      religion, motherTongue, maritalStatus,
-      education, occupation, city, state
+      name,
+      phoneNumber,
+      gender,
+      dateOfBirth,
+      religion,
+      motherTongue,
+      maritalStatus,
+      education,
+      occupation,
+      city,
+      state,
     } = req.body;
 
     const updated = await User.findByIdAndUpdate(
       userId,
       {
-        name, phoneNumber, gender, dateOfBirth,
-        religion, motherTongue, maritalStatus,
-        education, occupation, city, state
+        name,
+        phoneNumber,
+        gender,
+        dateOfBirth,
+        religion,
+        motherTongue,
+        maritalStatus,
+        education,
+        occupation,
+        city,
+        state,
       },
-      { new: true, runValidators: true }
-    ).select('-password');
+      { new: true, runValidators: true },
+    ).select("-password");
 
     res.status(200).json({ success: true, user: updated });
   } catch (error) {
@@ -472,12 +601,15 @@ const updateProfile = async (req, res) => {
 // =========================
 // PHOTO MANAGEMENT
 // =========================
-const { cloudinary } = require('../config/cloudinary');
+const { cloudinary } = require("../config/cloudinary");
 
 const uploadPhoto = async (req, res) => {
   try {
     console.log("upload potosss hittt");
-    if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ success: false, message: "No file uploaded" });
 
     const user = await User.findById(req.user._id);
     user.photos.push(req.file.path);
@@ -494,10 +626,10 @@ const deletePhoto = async (req, res) => {
     const { photoUrl } = req.body;
     const user = await User.findById(req.user._id);
 
-    const publicId = photoUrl.split('/').slice(-2).join('/').split('.')[0];
+    const publicId = photoUrl.split("/").slice(-2).join("/").split(".")[0];
     await cloudinary.uploader.destroy(publicId);
 
-    user.photos = user.photos.filter(p => p !== photoUrl);
+    user.photos = user.photos.filter((p) => p !== photoUrl);
     await user.save();
 
     res.status(200).json({ success: true, photos: user.photos });
@@ -518,56 +650,40 @@ const reorderPhotos = async (req, res) => {
   }
 };
 
-
-
-
 const likeUser = async (req, res) => {
-
   try {
-
     const targetUserId = req.params.userId;
 
     const currentUserId = req.user._id;
 
     // Cannot like own profile
-    if (
-      targetUserId === currentUserId.toString()
-    ) {
+    if (targetUserId === currentUserId.toString()) {
       return res.status(400).json({
         success: false,
-        message: "You cannot like yourself"
+        message: "You cannot like yourself",
       });
     }
 
-    const targetUser = await User.findById(
-      targetUserId
-    );
+    const targetUser = await User.findById(targetUserId);
 
     if (!targetUser) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
     // Check already liked
-    const alreadyLiked =
-      targetUser.likes.some(
-        (id) =>
-          id.toString() ===
-          currentUserId.toString()
-      );
+    const alreadyLiked = targetUser.likes.some(
+      (id) => id.toString() === currentUserId.toString(),
+    );
 
     // ─── UNLIKE ───────────────────────────────
 
     if (alreadyLiked) {
-
-      targetUser.likes =
-        targetUser.likes.filter(
-          (id) =>
-            id.toString() !==
-            currentUserId.toString()
-        );
+      targetUser.likes = targetUser.likes.filter(
+        (id) => id.toString() !== currentUserId.toString(),
+      );
 
       await targetUser.save();
 
@@ -575,7 +691,7 @@ const likeUser = async (req, res) => {
         success: true,
         liked: false,
         message: "User unliked",
-        likesCount: targetUser.likes.length
+        likesCount: targetUser.likes.length,
       });
     }
 
@@ -588,12 +704,16 @@ const likeUser = async (req, res) => {
     SocketService.emitLikeNotification(req.user, targetUserId);
 
     // Push notification
-    notifyInterestReceived(targetUserId, req.user.name, currentUserId.toString());
+    notifyInterestReceived(
+      targetUserId,
+      req.user.name,
+      currentUserId.toString(),
+    );
 
     createNotification({
       recipient: targetUserId,
       sender: currentUserId,
-      type: 'like',
+      type: "like",
       message: `${req.user.name} liked your profile`,
       data: { url: `/profile/${currentUserId}` },
     });
@@ -603,19 +723,15 @@ const likeUser = async (req, res) => {
       success: true,
       liked: true,
       message: "User liked",
-      likesCount: targetUser.likes.length
+      likesCount: targetUser.likes.length,
     });
-
   } catch (error) {
-
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
-
-
 
 const addComment = async (req, res) => {
   try {
@@ -626,7 +742,7 @@ const addComment = async (req, res) => {
     if (!text) {
       return res.status(400).json({
         success: false,
-        message: 'Comment text required',
+        message: "Comment text required",
       });
     }
 
@@ -635,7 +751,7 @@ const addComment = async (req, res) => {
     if (!targetUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
@@ -652,23 +768,25 @@ const addComment = async (req, res) => {
     // Push notification
     sendPushToUser(targetUserId, {
       title: `💬 New comment from ${req.user.name}`,
-      body: text.length > 60 ? text.slice(0, 60) + '…' : text,
-      type: 'message',
+      body: text.length > 60 ? text.slice(0, 60) + "…" : text,
+      type: "message",
       senderId: req.user._id,
-      data: { url: `/profile/${targetUserId}` }
+      data: { url: `/profile/${targetUserId}` },
     });
 
     createNotification({
       recipient: targetUserId,
       sender: req.user._id,
-      type: 'comment',
-      message: `${req.user.name} commented: "${text.length > 60 ? text.slice(0, 60) + '…' : text}"`,
+      type: "comment",
+      message: `${req.user.name} commented: "${text.length > 60 ? text.slice(0, 60) + "…" : text}"`,
       data: { url: `/profile/${req.user._id}` },
     });
     // ──────────────────────────────────────────────────────────────────
 
-    const updatedUser = await User.findById(targetUserId)
-      .populate('comments.user', 'name photos');
+    const updatedUser = await User.findById(targetUserId).populate(
+      "comments.user",
+      "name photos",
+    );
 
     res.status(200).json({
       success: true,
@@ -682,7 +800,6 @@ const addComment = async (req, res) => {
   }
 };
 
-
 const deleteComment = async (req, res) => {
   try {
     const { userId, commentId } = req.params;
@@ -692,7 +809,7 @@ const deleteComment = async (req, res) => {
     if (!targetUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
@@ -701,7 +818,7 @@ const deleteComment = async (req, res) => {
     if (!comment) {
       return res.status(404).json({
         success: false,
-        message: 'Comment not found',
+        message: "Comment not found",
       });
     }
 
@@ -710,7 +827,7 @@ const deleteComment = async (req, res) => {
     if (comment.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'Unauthorized',
+        message: "Unauthorized",
       });
     }
 
@@ -720,7 +837,7 @@ const deleteComment = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Comment deleted',
+      message: "Comment deleted",
     });
   } catch (error) {
     res.status(500).json({
@@ -730,16 +847,17 @@ const deleteComment = async (req, res) => {
   }
 };
 
-
 const getUserComments = async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId)
-      .populate('comments.user', 'name photos');
+    const user = await User.findById(req.params.userId).populate(
+      "comments.user",
+      "name photos",
+    );
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
+        message: "User not found",
       });
     }
 
@@ -761,7 +879,7 @@ module.exports = {
   verifyPhone,
   getAllUsers,
   searchUsers,
-  getProfile,       // ← NEW — add this to your userRoutes.js too
+  getProfile, // ← NEW — add this to your userRoutes.js too
   updateProfile,
   uploadPhoto,
   deletePhoto,
@@ -769,5 +887,5 @@ module.exports = {
   likeUser,
   addComment,
   deleteComment,
-  getUserComments
+  getUserComments,
 };
