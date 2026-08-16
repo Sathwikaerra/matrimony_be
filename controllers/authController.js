@@ -147,9 +147,10 @@ const registerUser = async (req, res) => {
       phoneNumber,
       accountFor,
       marriageInfo,
+      gender, // ← added
     } = req.body;
 
-    if (!name || !email || !password || !phoneNumber) {
+    if (!name || !email || !password || !phoneNumber || !gender) {
       return res.status(400).json({
         success: false,
         message: "Please fill all fields",
@@ -199,6 +200,7 @@ const registerUser = async (req, res) => {
       phoneVerified: true,
       accountFor,
       marriageInfo,
+      gender, // ← added
     });
 
     const token = generateToken(user._id);
@@ -317,12 +319,10 @@ const verifyPhone = async (req, res) => {
     const decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
     const verifiedPhone = decoded.phone_number; // e.g. "+919876543210"
     if (!verifiedPhone) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Token has no verified phone number",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Token has no verified phone number",
+      });
     }
 
     // Loose match — stored phoneNumber may or may not include the country
@@ -331,12 +331,10 @@ const verifyPhone = async (req, res) => {
     const digitsOnly = (s) => (s || "").replace(/\D/g, "");
     const storedDigits = digitsOnly(req.user.phoneNumber);
     if (!storedDigits || !digitsOnly(verifiedPhone).endsWith(storedDigits)) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Verified number does not match this account",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Verified number does not match this account",
+      });
     }
 
     const updated = await User.findByIdAndUpdate(
@@ -348,12 +346,10 @@ const verifyPhone = async (req, res) => {
     res.status(200).json({ success: true, user: updated });
   } catch (error) {
     console.error("verifyPhone error:", error.message);
-    res
-      .status(400)
-      .json({
-        success: false,
-        message: "Invalid or expired verification token",
-      });
+    res.status(400).json({
+      success: false,
+      message: "Invalid or expired verification token",
+    });
   }
 };
 
