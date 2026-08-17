@@ -9,6 +9,8 @@ const router = express.Router();
 const {
     registerUser,
     loginUser,
+    forgotPassword,
+    resetPassword,
     verifyPhone,
     getAllUsers,
     searchUsers,
@@ -30,6 +32,9 @@ router.put   ('/photos/reorder', protect, reorderPhotos);
 
 router.post('/signup', registerUser);
 router.post('/login', loginUser);
+// Not protect-gated — by definition the user isn't logged in yet.
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 // Called right after signup once the frontend has completed the Firebase
 // Phone Auth OTP round-trip — protect-gated because it needs to know which
 // account to mark verified (the freshly-created user is already logged in

@@ -55,6 +55,20 @@ const sendPushNotification = async (tokens, payload) => {
 
   };
 
+  // Grouping/collapsing — without this, every push (e.g. several chat
+  // messages from the same person in a row) lands as its own separate
+  // notification banner and stacks up in the shade. Giving repeat
+  // notifications from the same source a shared `tag` makes a new one
+  // *replace* the previous one on Android instead of piling up; the APNs
+  // `apns-collapse-id` header is iOS's equivalent (64-byte limit — Mongo
+  // ObjectId-based tags comfortably fit). `payload.tag` is opt-in per call
+  // site (see pushService.js) so this only groups where it actually makes
+  // sense (e.g. per sender), not indiscriminately across unrelated pushes.
+  if (payload.tag) {
+    message.android = { notification: { tag: payload.tag } };
+    message.apns = { headers: { "apns-collapse-id": payload.tag.slice(0, 64) } };
+  }
+
   try {
 
     const response =

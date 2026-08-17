@@ -65,6 +65,18 @@ const userSchema = new mongoose.Schema({
     // Set on socket disconnect — "last seen" for the chat header when the
     // user isn't currently online. Left unset until their first disconnect.
     lastSeen: { type: Date },
+    // ───────── Forgot password ─────────
+    // Set by authController.forgotPassword, checked + cleared by
+    // resetPassword. select:false to match the `password` field's privacy
+    // convention — these shouldn't leak into /auth/me or profile responses.
+    resetPasswordOtp: {
+      type: String,
+      select: false,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      select: false,
+    },
     // ───────── Likes ─────────
 
     likes: [

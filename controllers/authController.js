@@ -296,6 +296,137 @@ const loginUser = async (req, res) => {
 };
 
 // =========================
+// FORGOT PASSWORD — request OTP
+// =========================
+// TEMPORARY: sends a fixed dummy OTP instead of an actual SMS/email — same
+// bypass pattern as the signup phone-verification flow above (test OTP
+// 123456). Swap RESET_OTP for a real randomly-generated code + an actual
+// email/SMS dispatch once a provider is wired up; the stored otp/expiry
+// fields on the user doc already support that without any API shape change.
+const RESET_OTP = "654321";
+const RESET_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email or phone number is required",
+      });
+    }
+
+    // Same flexible identifier as loginUser — "email" doubles as email or
+    // phone number.
+    const user = await User.findOne({
+      $or: [{ email }, { phoneNumber: email }],
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with that email or phone number",
+      });
+    }
+
+    user.resetPasswordOtp = RESET_OTP;
+    user.resetPasswordExpires = new Date(Date.now() + RESET_OTP_TTL_MS);
+    await user.save();
+
+    // TODO: actually send RESET_OTP via SMS/email once a provider is wired
+    // up — for now both frontends just know to enter the fixed test code.
+    console.log(`[forgotPassword] OTP for ${email}: ${RESET_OTP}`);
+
+    return res.status(200).json({
+      success: true,
+      message: "An OTP has been sent to reset your password",
+    });
+  } catch (error) {
+    console.error("forgotPassword error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// =========================
+// RESET PASSWORD — verify OTP + set new password
+// =========================
+const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Email/phone number, OTP and new password are all required",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    const user = await User.findOne({
+      $or: [{ email }, { phoneNumber: email }],
+    }).select("+resetPasswordOtp +resetPasswordExpires");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with that email or phone number",
+      });
+    }
+
+    if (!user.resetPasswordOtp || !user.resetPasswordExpires) {
+      return res.status(400).json({
+        success: false,
+        message: "Request a new OTP before resetting your password",
+      });
+    }
+
+    if (user.resetPasswordExpires < new Date()) {
+      user.resetPasswordOtp = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+      return res.status(400).json({
+        success: false,
+        message: "This OTP has expired — request a new one",
+      });
+    }
+
+    if (otp !== user.resetPasswordOtp) {
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect OTP",
+      });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    user.resetPasswordOtp = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successful — you can now log in with your new password",
+    });
+  } catch (error) {
+    console.error("resetPassword error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// =========================
 // VERIFY PHONE (Firebase Phone Auth)
 // =========================
 // The frontend does the actual OTP round-trip itself via the Firebase
@@ -872,6 +1003,8 @@ const getUserComments = async (req, res) => {
 module.exports = {
   registerUser,
   loginUser,
+  forgotPassword,
+  resetPassword,
   verifyPhone,
   getAllUsers,
   searchUsers,

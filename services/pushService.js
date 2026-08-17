@@ -9,15 +9,22 @@ async function sendPushToUser(userId, payload) {
     if (!tokens || tokens.length === 0) return; // user not subscribed
 
     const tokenList = tokens.map(t => t.token);
-    
+
+    const senderId = payload.senderId?.toString() || '';
+    const type = payload.type || 'general';
+
     await sendPushNotification(tokenList, {
       title: payload.title,
       body: payload.body,
       data: {
-        type: payload.type || 'general',
-        senderId: payload.senderId?.toString() || '',
+        type,
+        senderId,
         ...payload.data
-      }
+      },
+      // Group repeats from the same sender+type (e.g. five chat messages in
+      // a row) into one notification that updates in place, instead of
+      // stacking a separate banner per push — see firebaseAdmin.js.
+      tag: senderId ? `${type}-${senderId}` : undefined,
     });
   } catch (err) {
     console.error('Push send error:', err.message);

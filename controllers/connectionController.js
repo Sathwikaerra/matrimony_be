@@ -46,7 +46,12 @@ const sendRequest = async (req, res) => {
     }
 
     // ── Gender Filtering — only allow opposite genders ───────────────
-    const sender = await User.findById(senderId).select("gender");
+    // select("gender") alone used to be enough here since only sender.gender
+    // was read — but sender.name is also needed below for the push
+    // notification (notifyInterestReceived), and Mongoose's select()
+    // excludes every field not listed, so sender.name came back undefined
+    // and the receiver saw "undefined sent you a request".
+    const sender = await User.findById(senderId).select("gender name");
     if (!sender?.gender || !receiver.gender) {
       return res.status(400).json({
         success: false,
