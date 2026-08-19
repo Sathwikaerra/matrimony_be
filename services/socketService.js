@@ -139,10 +139,10 @@ class SocketService {
     // other side (if they currently have that chat open) should pick it up
     // live instead of only seeing it on their next fetch.
     // =========================
-    static emitWallpaperChanged(toUserId, fromUserId, wallpaper) {
+    static emitWallpaperChanged(toUserId, fromUserId, wallpaper, opacity) {
         try {
             const io = getIO();
-            io.to(toUserId.toString()).emit('wallpaperChanged', { otherUserId: fromUserId, wallpaper });
+            io.to(toUserId.toString()).emit('wallpaperChanged', { otherUserId: fromUserId, wallpaper, opacity });
         } catch (error) {
             console.error('Socket emission error (wallpaper):', error.message);
         }

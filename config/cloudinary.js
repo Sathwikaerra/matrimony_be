@@ -29,7 +29,9 @@ const chatMediaStorage = new CloudinaryStorage({
     params: {
         folder:          'vivaah/chat',
         resource_type:   'auto',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'],
+        // m4a/caf/3gp/aac/wav cover Expo's Audio.Recording output across
+        // iOS/Android (voice notes) on top of the existing photo/video formats.
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm', 'm4a', 'caf', '3gp', 'aac', 'wav', 'mp3'],
     },
 });
 
@@ -53,6 +55,40 @@ const storyMediaStorage = new CloudinaryStorage({
 const uploadStoryMedia = multer({
     storage: storyMediaStorage,
     limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+// ── Reels (permanent short vertical video posts) ────────────────────────────
+// Unlike stories (24h TTL, see storyMediaStorage above), reels are permanent
+// content — no expiresAt, no TTL index on the model. Video-only, and a
+// bigger size ceiling than chat/story media since reels run longer.
+const reelMediaStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/reels',
+        resource_type:   'video',
+        allowed_formats: ['mp4', 'mov', 'webm'],
+    },
+});
+
+const uploadReelMedia = multer({
+    storage: reelMediaStorage,
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB — reels run longer than a chat video clip
+});
+
+// ── Chat wallpapers (custom-uploaded, shared per conversation) ─────────────
+// Image-only, no forced crop — rendered at low opacity behind the chat
+// (see WallpaperBackground / setWallpaper's wallpaperOpacity).
+const wallpaperStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/wallpapers',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    },
+});
+
+const uploadWallpaperImage = multer({
+    storage: wallpaperStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 // ── Locker documents (private, permission-gated storage) ───────────────────
@@ -92,4 +128,4 @@ const uploadAnnouncementImage = multer({
     limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadLockerDocument, uploadAnnouncementImage };
+module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadReelMedia, uploadWallpaperImage, uploadLockerDocument, uploadAnnouncementImage };

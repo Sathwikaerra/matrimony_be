@@ -1,6 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/authMiddleware');
             const User = require('../models/User');
+            const Survey = require('../models/Survey');
 
 
 
@@ -56,7 +57,21 @@ router.get('/me', protect, async (req, res) => {
             return
 
         }
-         return res.status(200).json({ user });
+        // Same survey merge as getProfile (authController.js) — without it
+        // your own profile screen never showed height/weight/diet, caste/
+        // subCaste/gothram, employedIn/annualIncome, or your bio, even right
+        // after saving them, since those fields live on the separate Survey
+        // document, not on User.
+        const survey = await Survey.findOne({ user: req.user._id }).lean();
+        const userObj = user.toObject();
+        if (survey) {
+            userObj.personal = survey.personal;
+            userObj.religious = survey.religious;
+            userObj.career = survey.career;
+            userObj.family = survey.family;
+            userObj.about = survey.about;
+        }
+         return res.status(200).json({ user: userObj });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }

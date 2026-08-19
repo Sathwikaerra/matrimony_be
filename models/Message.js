@@ -9,6 +9,7 @@ const messageSchema = new mongoose.Schema({
   message:    { type: String, required: false, default: '' }, // optional — media-only messages carry no text
   images:     [{ type: String }], // Cloudinary URLs
   videos:     [{ type: String }], // Cloudinary URLs
+  audios:     [{ type: String }], // Cloudinary URLs — voice notes recorded in-chat
   isRead:     { type: Boolean, default: false },   // ← add this
   // Instagram/WhatsApp-style "reply to this message" — a real ref (not a
   // denormalized text snapshot) so an edit-in-place scenario would stay

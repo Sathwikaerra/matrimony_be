@@ -73,7 +73,10 @@ async function notifyNewMessage(receiverId, senderName, senderId, messagePreview
     body: messagePreview.length > 60 ? messagePreview.slice(0, 60) + '…' : messagePreview,
     type: 'message',
     senderId,
-    data: { url: `/messages/${senderId}` },
+    // senderName lets the client show the real name in the chat header the
+    // instant it opens from this notification, instead of a "Chat"
+    // placeholder while it re-fetches something already known here.
+    data: { url: `/messages/${senderId}`, senderName },
   });
 }
 

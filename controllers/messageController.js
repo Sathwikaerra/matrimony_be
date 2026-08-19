@@ -44,7 +44,7 @@ const RESTRICTION_MESSAGES = {
 // enough for the quoted preview: text/media to show, and senderId so the
 // frontend can label it "You" vs the other person's name without a second
 // nested populate.
-const REPLY_PREVIEW_FIELDS = 'message images videos senderId isDeleted';
+const REPLY_PREVIEW_FIELDS = 'message images videos audios senderId isDeleted';
 
 // A reply target must actually exist and belong to the same conversation
 // as the two people sending/receiving this new message — otherwise anyone
@@ -153,6 +153,7 @@ const sendMessageWithFiles = async (req, res) => {
 
         const images = files.filter(f => f.mimetype.startsWith('image/')).map(f => f.path);
         const videos = files.filter(f => f.mimetype.startsWith('video/')).map(f => f.path);
+        const audios = files.filter(f => f.mimetype.startsWith('audio/')).map(f => f.path);
 
         const newMessage = await Message.create({
             senderId,
@@ -160,6 +161,7 @@ const sendMessageWithFiles = async (req, res) => {
             message: message?.trim() || '',
             images,
             videos,
+            audios,
             replyTo: await resolveReplyTo(replyTo, senderId, receiverId),
         });
         if (newMessage.replyTo) await newMessage.populate('replyTo', REPLY_PREVIEW_FIELDS);
@@ -170,7 +172,8 @@ const sendMessageWithFiles = async (req, res) => {
             if (!sender) return;
             let preview = message?.trim();
             if (!preview) {
-                if (videos.length) preview = '📹 Sent a video';
+                if (audios.length) preview = '🎤 Sent a voice message';
+                else if (videos.length) preview = '📹 Sent a video';
                 else if (images.length) preview = '📷 Sent a photo';
                 else preview = 'Sent an attachment';
             }
@@ -377,6 +380,17 @@ const getRecentChats = async (req, res) => {
                         ],
                     },
                     lastMessage:   { $first: '$message'   },
+                    // A media-only message (photo/video/voice note) has an
+                    // empty `message` string — without these, the inbox
+                    // preview for that conversation went blank, which the
+                    // frontend then masked by falling back to showing the
+                    // *other person's city/occupation* instead (see
+                    // messages.jsx's `item.lastMessage || item.city ||
+                    // item.occupation`), which read as a totally wrong
+                    // "last message". Synthesized into a real preview below.
+                    lastImages:    { $first: '$images'    },
+                    lastVideos:    { $first: '$videos'    },
+                    lastAudios:    { $first: '$audios'    },
                     lastTime:      { $first: '$createdAt' },
                     // Who sent the most recent message, and whether *they've*
                     // read it yet — lets the inbox list show read-receipt
@@ -414,7 +428,20 @@ const getRecentChats = async (req, res) => {
             {
                 $project: {
                     _id:         0,
-                    lastMessage: 1,
+                    lastMessage: {
+                        $switch: {
+                            branches: [
+                                {
+                                    case: { $and: [{ $ne: ['$lastMessage', null] }, { $ne: ['$lastMessage', ''] }] },
+                                    then: '$lastMessage',
+                                },
+                                { case: { $gt: [{ $size: { $ifNull: ['$lastAudios', []] } }, 0] }, then: '🎤 Voice message' },
+                                { case: { $gt: [{ $size: { $ifNull: ['$lastVideos', []] } }, 0] }, then: '📹 Video' },
+                                { case: { $gt: [{ $size: { $ifNull: ['$lastImages', []] } }, 0] }, then: '📷 Photo' },
+                            ],
+                            default: '',
+                        },
+                    },
                     lastTime:    1,
                     lastSenderId: 1,
                     lastMessageIsRead: 1,

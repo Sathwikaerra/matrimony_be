@@ -635,6 +635,21 @@ const getProfile = async (req, res) => {
       });
     }
 
+    // Merge in the extended survey fields (height/weight/diet, caste/
+    // subCaste/gothram, employedIn/annualIncome, aboutMe, ...) — these live
+    // on their own Survey document (see models/Survey.js), not on User, so
+    // without this merge the profile view/edit form for these fields always
+    // read back blank regardless of what was actually saved via the survey.
+    const survey = await Survey.findOne({ user: profileId }).lean();
+    const profileObj = profile.toObject();
+    if (survey) {
+      profileObj.personal = survey.personal;
+      profileObj.religious = survey.religious;
+      profileObj.career = survey.career;
+      profileObj.family = survey.family;
+      profileObj.about = survey.about;
+    }
+
     // ── Push notification: tell owner their profile was viewed ──────
     // Only fires when a logged-in user views someone else's profile.
     //
@@ -674,7 +689,7 @@ const getProfile = async (req, res) => {
     }
     // ────────────────────────────────────────────────────────────────
 
-    res.status(200).json({ success: true, profile });
+    res.status(200).json({ success: true, profile: profileObj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
