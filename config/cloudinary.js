@@ -57,22 +57,19 @@ const uploadStoryMedia = multer({
     limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// ── Reels (permanent short vertical video posts) ────────────────────────────
-// Unlike stories (24h TTL, see storyMediaStorage above), reels are permanent
-// content — no expiresAt, no TTL index on the model. Video-only, and a
-// bigger size ceiling than chat/story media since reels run longer.
-const reelMediaStorage = new CloudinaryStorage({
+// ── Posts (permanent photo + caption feed posts) ────────────────────────────
+// Image-only, no forced crop — permanent content like reels were, no TTL.
+const postMediaStorage = new CloudinaryStorage({
     cloudinary,
     params: {
-        folder:          'vivaah/reels',
-        resource_type:   'video',
-        allowed_formats: ['mp4', 'mov', 'webm'],
+        folder:          'vivaah/posts',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
     },
 });
 
-const uploadReelMedia = multer({
-    storage: reelMediaStorage,
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB — reels run longer than a chat video clip
+const uploadPostImage = multer({
+    storage: postMediaStorage,
+    limits: { fileSize: 15 * 1024 * 1024 },
 });
 
 // ── Chat wallpapers (custom-uploaded, shared per conversation) ─────────────
@@ -128,4 +125,4 @@ const uploadAnnouncementImage = multer({
     limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadReelMedia, uploadWallpaperImage, uploadLockerDocument, uploadAnnouncementImage };
+module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadPostImage, uploadWallpaperImage, uploadLockerDocument, uploadAnnouncementImage };

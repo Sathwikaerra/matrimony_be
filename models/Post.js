@@ -1,17 +1,17 @@
-// models/Reel.js
-// Permanent short vertical video post — separate content type from Story
-// (24h/ephemeral) and from the Home feed's match-discovery cards. Visible
-// platform-wide (same open-discovery visibility as the Home feed), not
-// gated to accepted connections like Stories/Locker are.
+// models/Post.js
+// Permanent photo + caption feed post — its own content type, separate from
+// the Home feed's match-discovery cards and from Story (24h/ephemeral,
+// connections-gated). Visible platform-wide, same open-discovery visibility
+// as the Home feed.
 const mongoose = require('mongoose');
 
-const reelSchema = new mongoose.Schema({
+const postSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
     },
-    videoUrl: {
+    imageUrl: {
         type: String,
         required: true,
     },
@@ -29,4 +29,4 @@ const reelSchema = new mongoose.Schema({
     ],
 }, { timestamps: true });
 
-module.exports = mongoose.model('Reel', reelSchema);
+module.exports = mongoose.model('Post', postSchema);

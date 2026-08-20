@@ -13,7 +13,7 @@ const {
 } = require('../controllers/chatSettingsController');
 
 // Same "wrap multer explicitly so upload failures return clean JSON" pattern
-// as messageRoutes.js/storyRoutes.js/reelRoutes.js.
+// as messageRoutes.js/storyRoutes.js/postRoutes.js.
 const handleWallpaperUpload = (req, res, next) => {
     uploadWallpaperImage.single('image')(req, res, (err) => {
         if (err) {
