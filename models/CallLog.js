@@ -17,6 +17,7 @@ const callLogSchema = new mongoose.Schema(
     connectedAt: { type: Date, default: null },
     endedAt: { type: Date, required: true },
     durationSeconds: { type: Number, default: 0 },
+    deletedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true }
 );

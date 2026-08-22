@@ -734,7 +734,17 @@ const updateProfile = async (req, res) => {
       { new: true, runValidators: true },
     ).select("-password");
 
-    res.status(200).json({ success: true, user: updated });
+    const survey = await Survey.findOne({ user: userId }).lean();
+    const userObj = updated ? updated.toObject() : {};
+    if (survey) {
+      userObj.personal = survey.personal;
+      userObj.religious = survey.religious;
+      userObj.career = survey.career;
+      userObj.family = survey.family;
+      userObj.about = survey.about;
+    }
+
+    res.status(200).json({ success: true, user: userObj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
