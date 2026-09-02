@@ -55,6 +55,27 @@ const sendPushNotification = async (tokens, payload) => {
 
   };
 
+  // Opt-in, additive only — every existing call site that doesn't pass
+  // `payload.urgent` keeps sending exactly the message shape it always has.
+  // Used for incoming-call pushes (see pushService.js's notifyIncomingCall),
+  // where FCM's default priority isn't reliably fast/high-priority enough to
+  // wake a backgrounded/Doze-throttled Android device or a backgrounded iOS
+  // app in time for the call to still be ringing when it arrives.
+  if (payload.urgent) {
+    message.android = {
+      ...message.android,
+      priority: "high",
+    };
+    message.apns = {
+      ...message.apns,
+      headers: {
+        ...message.apns?.headers,
+        "apns-priority": "10",
+        "apns-push-type": "alert",
+      },
+    };
+  }
+
   // Grouping/collapsing — without this, every push (e.g. several chat
   // messages from the same person in a row) lands as its own separate
   // notification banner and stacks up in the shade. Giving repeat
@@ -65,8 +86,18 @@ const sendPushNotification = async (tokens, payload) => {
   // site (see pushService.js) so this only groups where it actually makes
   // sense (e.g. per sender), not indiscriminately across unrelated pushes.
   if (payload.tag) {
-    message.android = { notification: { tag: payload.tag } };
-    message.apns = { headers: { "apns-collapse-id": payload.tag.slice(0, 64) } };
+    // Merged with (not overwriting) whatever payload.urgent may have already
+    // set above — a tagged *and* urgent push (not used today, but a plain
+    // reassignment here would silently drop the urgent priority/headers set
+    // above if one ever is) needs both to survive.
+    message.android = {
+      ...message.android,
+      notification: { ...message.android?.notification, tag: payload.tag },
+    };
+    message.apns = {
+      ...message.apns,
+      headers: { ...message.apns?.headers, "apns-collapse-id": payload.tag.slice(0, 64) },
+    };
   }
 
   try {

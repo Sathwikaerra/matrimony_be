@@ -6,6 +6,7 @@ const { isConnected } = require("../utils/isConnected");
 const User = require("../models/User");
 const CallLog = require("../models/CallLog");
 const Block = require("../models/Block");
+const { notifyIncomingCall, notifyMissedCall } = require("../services/pushService");
 
 let io;
 
@@ -22,6 +23,21 @@ const userActiveChatMap = {};
 // below). Finalized into a CallLog row (and removed from here) by whichever
 // of rejectCall/endCall concludes it — see finalizeCallLog().
 const pendingCallLogs = {};
+
+// True if userA and userB are the two participants of some currently
+// ringing-or-active call (in either direction — either could be the
+// caller). Used to gate webrtcSignal/rejectCall/endCall so those can only
+// affect a call the sender is actually part of — without this, any
+// authenticated socket could emit e.g. endCall/rejectCall with an
+// arbitrary `to` and silently kill or inject signaling into a call between
+// two totally unrelated users, since those handlers otherwise just trust
+// whatever `to` the client sends.
+function isActiveCallPair(userA, userB) {
+  const a = userA?.toString();
+  const b = userB?.toString();
+  if (!a || !b) return false;
+  return pendingCallLogs[a]?.from === b || pendingCallLogs[b]?.from === a;
+}
 
 // Writes the CallLog row for whichever pending call `uid` (either party)
 // belongs to, then clears it from pendingCallLogs. Safe to call from either
@@ -50,6 +66,14 @@ function finalizeCallLog(uid, { forcedStatus } = {}) {
     endedAt,
     durationSeconds,
   }).catch((err) => console.log("❌ CallLog write error:", err.message));
+
+  // The call never connected — replace whatever "incoming call" push
+  // notifyIncomingCall sent with a "missed call" one instead of leaving it
+  // sitting in the tray looking like it's still ringing. See
+  // notifyMissedCall's own comment for how the replacement works.
+  if (!entry.connectedAt) {
+    notifyMissedCall(calleeKey, entry.callerName, entry.from);
+  }
 }
 
 const getOnlineUsers = () => Object.keys(userSocketMap);
@@ -315,7 +339,7 @@ const initSocket = (httpServer) => {
     // and every ICE candidate in both directions. Each side just forwards
     // whatever simple-peer hands it, verbatim.
     // ─────────────────────────────────────────────
-    socket.on("callUser", async ({ to, signal, callerName }) => {
+    socket.on("callUser", async ({ to, signal, callerName, callType }) => {
       try {
         // `from` is the verified identity of this connection (see the JWT
         // handshake auth above) — never the client-supplied field. That's
@@ -359,18 +383,38 @@ const initSocket = (httpServer) => {
           return;
         }
 
+        // Busy check — the callee already has a ringing-or-active call
+        // (with this caller or anyone else). Without this, a second
+        // callUser to the same callee silently overwrote the first one's
+        // pendingCallLogs entry below, so the first call's CallLog row
+        // never got written at all (finalizeCallLog would only ever find
+        // the second entry) — it just vanished from history, not even as
+        // "missed". This also means a third party calling someone already
+        // mid-call gets an immediate busy signal instead of ringing into
+        // the void for the full 45s client-side timeout.
+        if (pendingCallLogs[to.toString()]) {
+          socket.emit("callUnauthorized", { reason: "This user is on another call" });
+          return;
+        }
+
         // Looked up server-side (not trusted from the client) so it can't be
         // spoofed — used by the full-screen incoming-call UI.
         const callerPhoto = fromUser?.photos?.[0] || null;
 
-        // Start of a call-history entry — finalized by rejectCall/endCall
-        // (or overwritten harmlessly if this same callee somehow gets a
-        // second ring before the first resolves; the busy-check below and
-        // on the frontend normally prevent that).
-        pendingCallLogs[to.toString()] = { from, startedAt: new Date(), connectedAt: null };
+        // Start of a call-history entry — finalized by rejectCall/endCall.
+        pendingCallLogs[to.toString()] = { from, startedAt: new Date(), connectedAt: null, callerName };
 
-        io.to(to.toString()).emit("incomingCall", { from, signal, callerName, callerPhoto });
+        io.to(to.toString()).emit("incomingCall", { from, signal, callerName, callerPhoto, callType });
         console.log(`📞 Call from ${from} to ${to}`);
+
+        // Backstop for when the callee's app isn't running to receive the
+        // socket event above at all (backgrounded past what the OS keeps
+        // alive, or — on Android — sometimes fully killed): fire an urgent
+        // push too. Deliberately fire-and-forget (not awaited) — a slow or
+        // failed push must never delay the actual ring signal above, and
+        // notifyIncomingCall already swallows its own errors (see
+        // pushService.js's sendPushToUser try/catch).
+        notifyIncomingCall(to, callerName, from, callType);
       } catch (err) {
         console.log("❌ callUser error:", err.message);
       }
@@ -396,9 +440,35 @@ const initSocket = (httpServer) => {
       }
     });
 
+    // The same account logged in on more than one device: incomingCall goes
+    // to every device's socket (they all join the same userId room — see
+    // registerSocketIdentity), so all of them ring. Without this, answering
+    // on one device left every other device still ringing until its own
+    // 45s client-side timeout, which then auto-declined — wrongly marking
+    // an in-progress/completed call "declined" and deleting its
+    // pendingCallLogs entry out from under the device actually on the call
+    // (see finalizeCallLog). socket.to (not io.to) excludes the answering
+    // socket itself — only the *other* devices need telling.
+    socket.on("callAccepted", () => {
+      try {
+        const uid = socket.userId;
+        if (!uid) return;
+        socket.to(uid.toString()).emit("callAnsweredElsewhere");
+      } catch (err) {
+        console.log("❌ callAccepted error:", err.message);
+      }
+    });
+
     socket.on("webrtcSignal", ({ to, signal }) => {
       try {
         if (!to || !signal) return;
+        // Only relay between the two actual participants of a real,
+        // currently-tracked call — otherwise any authenticated socket could
+        // send fabricated SDP/ICE payloads into a stranger's call just by
+        // guessing/knowing their userId, since the client side trusts
+        // whatever webrtcSignal hands it (see CallContext.jsx's
+        // onWebrtcSignal) without re-checking who it came from.
+        if (!isActiveCallPair(socket.userId, to)) return;
         // Same as callUser — `from` is this connection's verified identity,
         // not a client-supplied field.
         io.to(to.toString()).emit("webrtcSignal", { from: socket.userId, signal });
@@ -410,6 +480,11 @@ const initSocket = (httpServer) => {
     socket.on("rejectCall", ({ to }) => {
       try {
         if (!to) return;
+        // Without this, anyone could emit rejectCall with an arbitrary `to`
+        // and silently kill a call they have nothing to do with — the
+        // client's onCallRejected handler cleans up unconditionally on
+        // whatever "callRejected" it receives.
+        if (!isActiveCallPair(socket.userId, to)) return;
         io.to(to.toString()).emit("callRejected");
         // The rejecter is always the callee here — both a deliberate
         // decline and the auto-reject-if-busy path in CallContext.jsx emit
@@ -423,6 +498,9 @@ const initSocket = (httpServer) => {
     socket.on("endCall", ({ to }) => {
       try {
         if (!to) return;
+        // Same reasoning as rejectCall above — endCall must only affect a
+        // call socket.userId is actually part of.
+        if (!isActiveCallPair(socket.userId, to)) return;
         io.to(to.toString()).emit("callEnded");
         // Whichever side hangs up — finalizeCallLog finds the entry
         // regardless of whether socket.userId was the caller or callee,
