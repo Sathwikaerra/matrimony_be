@@ -414,6 +414,42 @@ const getRecentChats = async (req, res) => {
                     }
                 },
             },
+            // "Delete chat" (see HiddenChat.js / chatSettingsController.js's
+            // deleteChat) hides a conversation from this list — but only
+            // until it has new activity again. Filtering here (before the
+            // $sort/$limit below) rather than after the query resolves keeps
+            // the 20-conversation page actually full of visible
+            // conversations instead of a filtered-down remainder.
+            {
+                $lookup: {
+                    from: 'hiddenchats',
+                    let: { otherUserId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ['$user', userObjectId] },
+                                        { $eq: ['$otherUser', '$$otherUserId'] },
+                                    ],
+                                },
+                            },
+                        },
+                        { $project: { hiddenAt: 1 } },
+                    ],
+                    as: 'hiddenInfo',
+                },
+            },
+            {
+                $match: {
+                    $expr: {
+                        $or: [
+                            { $eq: [{ $size: '$hiddenInfo' }, 0] },
+                            { $gt: ['$lastTime', { $arrayElemAt: ['$hiddenInfo.hiddenAt', 0] }] },
+                        ],
+                    },
+                },
+            },
             { $sort: { lastTime: -1 } },
             { $limit: 20 },
             {

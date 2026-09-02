@@ -8,6 +8,7 @@ const {
     setWallpaper,
     uploadCustomWallpaper,
     clearChat,
+    deleteChat,
     blockUser,
     unblockUser,
 } = require('../controllers/chatSettingsController');
@@ -31,6 +32,7 @@ router.get('/:otherUserId/settings', protect, getChatSettings);
 router.put('/:otherUserId/wallpaper', protect, setWallpaper);
 router.post('/:otherUserId/wallpaper/upload', protect, handleWallpaperUpload, uploadCustomWallpaper);
 router.post('/:otherUserId/clear', protect, clearChat);
+router.post('/:otherUserId/delete', protect, deleteChat);
 router.post('/:otherUserId/block', protect, blockUser);
 router.post('/:otherUserId/unblock', protect, unblockUser);
 

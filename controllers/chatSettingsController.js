@@ -1,6 +1,7 @@
 // controllers/chatSettingsController.js
 const ChatSettings = require('../models/ChatSettings');
 const ChatClear = require('../models/ChatClear');
+const HiddenChat = require('../models/HiddenChat');
 const Block = require('../models/Block');
 const SocketService = require('../services/socketService');
 const { orderedPair } = require('../utils/chatPair');
@@ -136,6 +137,29 @@ const clearChat = async (req, res) => {
     }
 };
 
+// POST /api/chat/:otherUserId/delete — "Delete chat" from the inbox list.
+// Per-user, and — unlike clearChat above — doesn't touch message history at
+// all: it only hides this conversation from getRecentChats (see
+// HiddenChat.js) until a new message makes it newer than `hiddenAt` again,
+// at which point it reappears with everything still there.
+const deleteChat = async (req, res) => {
+    try {
+        const userId = req.user._id.toString();
+        const { otherUserId } = req.params;
+
+        await HiddenChat.findOneAndUpdate(
+            { user: userId, otherUser: otherUserId },
+            { hiddenAt: new Date() },
+            { upsert: true, new: true }
+        );
+
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('deleteChat error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 // POST /api/chat/:otherUserId/block
 const blockUser = async (req, res) => {
     try {
@@ -174,4 +198,4 @@ const unblockUser = async (req, res) => {
     }
 };
 
-module.exports = { getChatSettings, setWallpaper, uploadCustomWallpaper, clearChat, blockUser, unblockUser, VALID_WALLPAPERS };
+module.exports = { getChatSettings, setWallpaper, uploadCustomWallpaper, clearChat, deleteChat, blockUser, unblockUser, VALID_WALLPAPERS };
