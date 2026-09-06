@@ -30,9 +30,12 @@ const createAnnouncement = async (req, res) => {
             /* malformed — falls back to all-false below, harmless */
         }
 
+        const isVideo = !!req.file?.mimetype?.startsWith('video/');
+
         const announcement = await Announcement.create({
             message: message.trim(),
-            imageUrl: req.file?.path,
+            imageUrl: req.file && !isVideo ? req.file.path : undefined,
+            videoUrl: req.file && isVideo ? req.file.path : undefined,
             linkUrl: linkUrl?.trim() || undefined,
             channels: {
                 alert: !!parsedChannels.alert,

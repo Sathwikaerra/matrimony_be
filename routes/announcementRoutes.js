@@ -19,13 +19,17 @@ const {
 
 // Wrap multer/Cloudinary explicitly so upload failures return clean JSON
 // instead of Express's generic HTML error page (same pattern as storyRoutes.js).
-const handleAnnouncementImageUpload = (req, res, next) => {
+// The field is still named 'image' for both request payload and multer here
+// (see config/cloudinary.js) even though uploadAnnouncementImage now accepts
+// video files too — createAnnouncement sorts the result into imageUrl or
+// videoUrl based on the actual mimetype.
+const handleAnnouncementMediaUpload = (req, res, next) => {
     uploadAnnouncementImage.single('image')(req, res, (err) => {
         if (err) {
-            console.error('Announcement image upload error:', err.message || err);
+            console.error('Announcement media upload error:', err.message || err);
             return res.status(400).json({
                 success: false,
-                message: err.message || 'Image upload failed. Please check the file format and size.',
+                message: err.message || 'Upload failed. Please check the file format and size.',
             });
         }
         next();
@@ -37,7 +41,7 @@ const handleAnnouncementImageUpload = (req, res, next) => {
 router.get('/active', protect, getActiveAnnouncements);
 
 // ── Admin only — management ─────────────────────────────────────────────────
-router.post('/', protect, admin, handleAnnouncementImageUpload, createAnnouncement);
+router.post('/', protect, admin, handleAnnouncementMediaUpload, createAnnouncement);
 router.get('/', protect, admin, listAnnouncements);
 router.patch('/:id', protect, admin, updateAnnouncement);
 router.delete('/:id', protect, admin, deleteAnnouncement);

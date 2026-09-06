@@ -17,6 +17,13 @@ const announcementSchema = new mongoose.Schema({
         trim: true,
     },
     imageUrl: String,
+    // Set instead of imageUrl when the admin attaches a video — the two are
+    // mutually exclusive per announcement (see createAnnouncement, which
+    // picks one based on the uploaded file's mimetype). Kept as a separate
+    // field rather than renaming imageUrl to a generic mediaUrl+mediaType
+    // pair, so every existing `announcement.imageUrl` check across both
+    // frontends keeps working unchanged for image announcements.
+    videoUrl: String,
     linkUrl: String,
     channels: {
         alert: { type: Boolean, default: false },

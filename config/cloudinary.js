@@ -109,20 +109,26 @@ const uploadLockerDocument = multer({
     limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// ── Announcement images (admin broadcast banners) ───────────────────────────
-// Image-only, no forced crop — banners come in whatever aspect ratio the
-// admin's creative was made in, same reasoning as chat/story media.
+// ── Announcement media (admin broadcast banners) ────────────────────────────
+// No forced crop — banners come in whatever aspect ratio the admin's
+// creative was made in, same reasoning as chat/story media. Video support
+// added alongside images: resource_type 'auto' + mp4/mov/webm, same pattern
+// as chatMediaStorage/storyMediaStorage above. The multer field name stays
+// 'image' (see announcementRoutes.js) even though it now accepts video too
+// — renaming it would mean updating every caller for no functional gain.
 const announcementStorage = new CloudinaryStorage({
     cloudinary,
     params: {
         folder:          'vivaah/announcements',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        resource_type:   'auto',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'],
     },
 });
 
 const uploadAnnouncementImage = multer({
     storage: announcementStorage,
-    limits: { fileSize: 10 * 1024 * 1024 },
+    // Bumped from 10MB (image-only) to accommodate short promo videos.
+    limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadPostImage, uploadWallpaperImage, uploadLockerDocument, uploadAnnouncementImage };
