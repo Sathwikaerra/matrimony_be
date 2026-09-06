@@ -7,6 +7,7 @@ const SocketService = require('../services/socketService');
 const { isConnected } = require('../utils/isConnected');
 const Block = require('../models/Block');
 const ChatClear = require('../models/ChatClear');
+const { recordMessage } = require('../services/chatStreakService');
 
 // Messaging is gated to accepted connections, same rule as calling
 // (socket/socket.js's callUser) — either side being an admin bypasses it,
@@ -39,6 +40,24 @@ const RESTRICTION_MESSAGES = {
     blocked_by_them: 'You are blocked by this user',
     not_connected: 'You can only message users you are connected with',
 };
+
+// Bumps the pair's streak/message-count (services/chatStreakService.js) and
+// broadcasts a celebratory event if a milestone was just crossed. Awaited
+// (unlike the push notification below) because the response carries the
+// fresh streak value back to the sender's own chat header immediately,
+// without a second round trip.
+async function bumpStreak(senderId, receiverId) {
+    try {
+        const result = await recordMessage(senderId, receiverId);
+        for (const milestone of result.milestones) {
+            SocketService.emitChatMilestone(senderId, receiverId, milestone);
+        }
+        return { streak: result.streak, totalMessages: result.totalMessages };
+    } catch (error) {
+        console.error('bumpStreak error:', error.message);
+        return null;
+    }
+}
 
 // Selected fields when a message quotes another one (swipe-to-reply) — just
 // enough for the quoted preview: text/media to show, and senderId so the
@@ -95,6 +114,8 @@ const sendMessage = async (req, res) => {
         });
         if (newMessage.replyTo) await newMessage.populate('replyTo', REPLY_PREVIEW_FIELDS);
 
+        const streakInfo = await bumpStreak(senderId, receiverId);
+
         // ── Push notification ─────────────────────────────────────────────
         // Fire-and-forget (don't await — don't block the response). Only the
         // FCM push (for background/closed-tab delivery) — new messages are
@@ -110,7 +131,7 @@ const sendMessage = async (req, res) => {
         });
         // ──────────────────────────────────────────────────────────────────
 
-        res.status(201).json({ success: true, messageData: newMessage });
+        res.status(201).json({ success: true, messageData: newMessage, streakInfo });
     } catch (error) {
         console.error('sendMessage error:', error.message);
         res.status(500).json({ success: false, message: error.message });
@@ -166,6 +187,8 @@ const sendMessageWithFiles = async (req, res) => {
         });
         if (newMessage.replyTo) await newMessage.populate('replyTo', REPLY_PREVIEW_FIELDS);
 
+        const streakInfo = await bumpStreak(senderId, receiverId);
+
         // ── Push notification ─────────────────────────────────────────────
         // Same as sendMessage above — FCM push only, no Notifications-feed row.
         User.findById(senderId).then((sender) => {
@@ -181,7 +204,7 @@ const sendMessageWithFiles = async (req, res) => {
         });
         // ──────────────────────────────────────────────────────────────────
 
-        res.status(201).json({ success: true, messageData: newMessage });
+        res.status(201).json({ success: true, messageData: newMessage, streakInfo });
     } catch (error) {
         console.error('sendMessageWithFiles error:', error.message);
         res.status(500).json({ success: false, message: error.message });

@@ -5,6 +5,7 @@ const HiddenChat = require('../models/HiddenChat');
 const Block = require('../models/Block');
 const SocketService = require('../services/socketService');
 const { orderedPair } = require('../utils/chatPair');
+const { getStreakInfo } = require('../services/chatStreakService');
 
 // Kept in sync with WALLPAPERS in matrimony_fe/src/component/WallpaperPicker.jsx —
 // rejecting anything else keeps this from becoming an arbitrary-string field.
@@ -19,10 +20,11 @@ const getChatSettings = async (req, res) => {
         const { otherUserId } = req.params;
         const { userA, userB } = orderedPair(userId, otherUserId);
 
-        const [settings, blockedByMe, blockedByThem] = await Promise.all([
+        const [settings, blockedByMe, blockedByThem, streakInfo] = await Promise.all([
             ChatSettings.findOne({ userA, userB }).select('wallpaper wallpaperOpacity'),
             Block.exists({ blocker: userId, blocked: otherUserId }),
             Block.exists({ blocker: otherUserId, blocked: userId }),
+            getStreakInfo(userId, otherUserId),
         ]);
 
         res.status(200).json({
@@ -31,6 +33,8 @@ const getChatSettings = async (req, res) => {
             wallpaperOpacity: settings?.wallpaperOpacity ?? 0.12,
             blockedByMe: !!blockedByMe,
             blockedByThem: !!blockedByThem,
+            streak: streakInfo.streak,
+            totalMessages: streakInfo.totalMessages,
         });
     } catch (error) {
         console.error('getChatSettings error:', error.message);

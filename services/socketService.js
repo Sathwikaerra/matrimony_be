@@ -148,6 +148,27 @@ class SocketService {
         }
     }
 
+    // =========================
+    // CHAT MILESTONE REACHED
+    // A streak or total-message threshold was just crossed (see
+    // services/chatStreakService.js) — sent to *both* people in the
+    // conversation so whoever doesn't have the chat open right now still
+    // sees the celebratory banner next time they open it isn't required;
+    // this is only the live "both online right now" case, same as
+    // wallpaperChanged. `otherUserId` is always "the other person in this
+    // conversation" *relative to the recipient*, so one shared payload
+    // shape works for both emits.
+    // =========================
+    static emitChatMilestone(userIdA, userIdB, milestone) {
+        try {
+            const io = getIO();
+            io.to(userIdA.toString()).emit('chatMilestone', { otherUserId: userIdB, milestone });
+            io.to(userIdB.toString()).emit('chatMilestone', { otherUserId: userIdA, milestone });
+        } catch (error) {
+            console.error('Socket emission error (chatMilestone):', error.message);
+        }
+    }
+
 }
 
 module.exports = SocketService;
