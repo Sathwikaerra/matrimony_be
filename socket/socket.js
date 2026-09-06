@@ -76,6 +76,46 @@ function finalizeCallLog(uid, { forcedStatus } = {}) {
   }
 }
 
+// ─────────────────────────────────────────────
+// Gaming Zone — generic 2-player game relay. The server never runs any
+// game logic itself (no board state, no win-checking) — it's purely a
+// signaling relay between two matched players, the same architecture as
+// webrtcSignal for calls. Each client keeps its own authoritative copy of
+// the board and mirrors the other player's moves as they arrive; this is
+// fine for a friendly game between two already-connected users, the same
+// trust level messaging/calling between them already assumes.
+//
+// userId -> { opponent, gameType } — set on BOTH players once an invite is
+// accepted (symmetric, unlike pendingCallLogs' caller/callee asymmetry,
+// since a game has no "caller" role), cleared when either side ends the
+// game or disconnects.
+const activeGames = {};
+// invitee's userId -> { from, gameType } — one not-yet-accepted/declined
+// invite per invitee, same one-at-a-time reasoning as pendingCallLogs.
+const pendingGameInvites = {};
+
+// True if userA and userB are the two players of some currently active
+// (already-accepted) game. Gates gameMove/gameEnded the same way
+// isActiveCallPair gates webrtcSignal/endCall — without this, any
+// authenticated socket could inject fabricated moves into a game between
+// two unrelated users just by guessing their ids.
+function isActiveGamePair(userA, userB) {
+  const a = userA?.toString();
+  const b = userB?.toString();
+  if (!a || !b) return false;
+  return activeGames[a]?.opponent === b && activeGames[b]?.opponent === a;
+}
+
+function clearGameFor(userId) {
+  const uid = userId?.toString();
+  if (!uid) return null;
+  const entry = activeGames[uid];
+  if (!entry) return null;
+  delete activeGames[uid];
+  delete activeGames[entry.opponent];
+  return entry.opponent;
+}
+
 const getOnlineUsers = () => Object.keys(userSocketMap);
 
 // Deployed frontend URL(s) come from CLIENT_URL (comma-separated if there's
@@ -275,6 +315,33 @@ const initSocket = (httpServer) => {
 
       } catch (err) {
         console.log("❌ stopTyping error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Special Chat — live shared drawing canvas. Pure relay of ephemeral
+    // stroke points, same trust level as typing/stopTyping above (no
+    // per-event DB check — the REST send-message flow that persists the
+    // finished doodle as a real message already enforces the actual
+    // connection/block gate; this is just a live "is someone drawing right
+    // now" signal between two people already inside an open chat with each
+    // other, not a resource calls/games need protecting).
+    // ─────────────────────────────────────────────
+    socket.on("drawStroke", ({ to, point }) => {
+      try {
+        if (!to || !point) return;
+        io.to(to.toString()).emit("drawStroke", { from: socket.userId, point });
+      } catch (err) {
+        console.log("❌ drawStroke error:", err.message);
+      }
+    });
+
+    socket.on("drawClear", ({ to }) => {
+      try {
+        if (!to) return;
+        io.to(to.toString()).emit("drawClear", { from: socket.userId });
+      } catch (err) {
+        console.log("❌ drawClear error:", err.message);
       }
     });
 
@@ -512,6 +579,120 @@ const initSocket = (httpServer) => {
     });
 
     // ─────────────────────────────────────────────
+    // Gaming Zone — invite / accept / decline / move / end. Pure relay, no
+    // server-side game logic — see the activeGames/pendingGameInvites
+    // comment above for why.
+    // ─────────────────────────────────────────────
+    socket.on("gameInvite", async ({ to, gameType }) => {
+      try {
+        const from = socket.userId;
+        if (!from) {
+          socket.emit("gameUnauthorized", { reason: "Not authenticated — try reloading the app" });
+          return;
+        }
+        if (!to || !gameType) return;
+
+        // Same priority order as calls/messaging: blocking wins over
+        // everything, checked before the admin bypass too.
+        const [blockedByMe, blockedByThem] = await Promise.all([
+          Block.exists({ blocker: from, blocked: to }),
+          Block.exists({ blocker: to, blocked: from }),
+        ]);
+        if (blockedByMe || blockedByThem) {
+          socket.emit("gameUnauthorized", {
+            reason: blockedByMe ? "You have blocked this user" : "You are blocked by this user",
+          });
+          return;
+        }
+
+        const [fromUser, toUser] = await Promise.all([
+          User.findById(from).select("role name photos"),
+          User.findById(to).select("role"),
+        ]);
+        const eitherIsAdmin = fromUser?.role === "admin" || toUser?.role === "admin";
+        const allowed = eitherIsAdmin || (await isConnected(from, to));
+        if (!allowed) {
+          socket.emit("gameUnauthorized", { reason: "Not connected with this user" });
+          return;
+        }
+
+        // Busy check — either side already mid-game, or the invitee
+        // already has a different invite sitting unanswered.
+        if (activeGames[from] || activeGames[to] || pendingGameInvites[to]) {
+          socket.emit("gameUnauthorized", { reason: "That player is busy with another game" });
+          return;
+        }
+
+        pendingGameInvites[to] = { from, gameType };
+        io.to(to.toString()).emit("gameInvite", {
+          from,
+          gameType,
+          fromName: fromUser?.name || "Someone",
+          fromPhoto: fromUser?.photos?.[0] || null,
+        });
+      } catch (err) {
+        console.log("❌ gameInvite error:", err.message);
+      }
+    });
+
+    socket.on("gameInviteAccepted", ({ to }) => {
+      try {
+        const from = socket.userId;
+        if (!from || !to) return;
+        // Must be accepting the exact invite this server actually sent to
+        // this user — not just any arbitrary `to` the client claims.
+        const invite = pendingGameInvites[from];
+        if (!invite || invite.from !== to.toString()) return;
+        delete pendingGameInvites[from];
+
+        activeGames[from] = { opponent: to.toString(), gameType: invite.gameType };
+        activeGames[to.toString()] = { opponent: from, gameType: invite.gameType };
+
+        io.to(to.toString()).emit("gameInviteAccepted", { from, gameType: invite.gameType });
+      } catch (err) {
+        console.log("❌ gameInviteAccepted error:", err.message);
+      }
+    });
+
+    socket.on("gameInviteDeclined", ({ to }) => {
+      try {
+        const from = socket.userId;
+        if (!from || !to) return;
+        if (pendingGameInvites[from]?.from === to.toString()) {
+          delete pendingGameInvites[from];
+        }
+        io.to(to.toString()).emit("gameInviteDeclined", { from });
+      } catch (err) {
+        console.log("❌ gameInviteDeclined error:", err.message);
+      }
+    });
+
+    socket.on("gameMove", ({ to, move }) => {
+      try {
+        if (!to || move === undefined) return;
+        // Only relay between the two actual players of a real, currently-
+        // active game — same reasoning as isActiveCallPair for
+        // webrtcSignal: otherwise any authenticated socket could inject
+        // fabricated moves into a game between two unrelated users.
+        if (!isActiveGamePair(socket.userId, to)) return;
+        io.to(to.toString()).emit("gameMove", { from: socket.userId, move });
+      } catch (err) {
+        console.log("❌ gameMove error:", err.message);
+      }
+    });
+
+    socket.on("gameEnded", ({ to }) => {
+      try {
+        if (!to) return;
+        if (!isActiveGamePair(socket.userId, to)) return;
+        clearGameFor(socket.userId);
+        io.to(to.toString()).emit("gameEnded", { from: socket.userId });
+      } catch (err) {
+        console.log("❌ gameEnded error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
     // Disconnect
     // ─────────────────────────────────────────────
     socket.on("disconnect", (reason) => {
@@ -555,6 +736,24 @@ const initSocket = (httpServer) => {
           io.to(otherParty.toString()).emit("callEnded");
           finalizeCallLog(userId);
         }
+
+        // Same idea for a dropped connection mid-game — clear the session
+        // on both sides and tell the opponent, rather than leaving them
+        // sitting in a game against someone who's actually gone.
+        const gameOpponent = clearGameFor(userId);
+        if (gameOpponent) {
+          io.to(gameOpponent).emit("gameEnded", { from: userId });
+        }
+        // A pending invite this user sent, never answered, dies with the
+        // socket too — otherwise the invitee's client would still be
+        // holding an invite from someone no longer even connected.
+        Object.keys(pendingGameInvites).forEach((invitee) => {
+          if (pendingGameInvites[invitee].from === userId) {
+            delete pendingGameInvites[invitee];
+            io.to(invitee).emit("gameInviteDeclined", { from: userId });
+          }
+        });
+        delete pendingGameInvites[userId];
 
         // Record when they were last online, for the chat header's
         // "Last seen …" line. Fire-and-forget — nothing downstream needs to
