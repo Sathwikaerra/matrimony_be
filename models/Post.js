@@ -11,9 +11,16 @@ const postSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+    // Exactly one of imageUrl/videoUrl is set per post (see
+    // postController.js's createPost, which picks based on the uploaded
+    // file's mimetype) — neither is schema-`required` alone since either
+    // one on its own is a valid post; createPost itself rejects a request
+    // with no file at all.
     imageUrl: {
         type: String,
-        required: true,
+    },
+    videoUrl: {
+        type: String,
     },
     caption: {
         type: String,

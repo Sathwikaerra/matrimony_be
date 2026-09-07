@@ -57,19 +57,23 @@ const uploadStoryMedia = multer({
     limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// ── Posts (permanent photo + caption feed posts) ────────────────────────────
-// Image-only, no forced crop — permanent content like reels were, no TTL.
+// ── Posts (permanent photo/video + caption feed posts) ──────────────────────
+// No forced crop — permanent content like reels were, no TTL. Video support
+// added alongside images, same resource_type:'auto' pattern as chat/story/
+// announcement media above.
 const postMediaStorage = new CloudinaryStorage({
     cloudinary,
     params: {
         folder:          'vivaah/posts',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        resource_type:   'auto',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'],
     },
 });
 
 const uploadPostImage = multer({
     storage: postMediaStorage,
-    limits: { fileSize: 15 * 1024 * 1024 },
+    // Bumped from 15MB (image-only) to accommodate video.
+    limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 // ── Chat wallpapers (custom-uploaded, shared per conversation) ─────────────

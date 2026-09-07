@@ -12,21 +12,24 @@ const {
 } = require('../controllers/postController');
 
 // Same "wrap multer explicitly so upload failures return clean JSON" pattern
-// used across the other upload routes in this app.
+// used across the other upload routes in this app. Field stays named
+// 'image' (see config/cloudinary.js's postMediaStorage) even though it now
+// accepts video too — createPost sorts the result into imageUrl or
+// videoUrl based on the actual mimetype.
 const handlePostUpload = (req, res, next) => {
     uploadPostImage.single('image')(req, res, (err) => {
         if (err) {
             console.error('Post upload error:', err.message || err);
             return res.status(400).json({
                 success: false,
-                message: err.message || 'Image upload failed. Please check the file format and size.',
+                message: err.message || 'Upload failed. Please check the file format and size.',
             });
         }
         next();
     });
 };
 
-// POST   /api/posts                 (create — photo + caption)
+// POST   /api/posts                 (create — photo/video + caption)
 router.post('/', protect, handlePostUpload, createPost);
 
 // GET    /api/posts                 (paginated feed, newest first)

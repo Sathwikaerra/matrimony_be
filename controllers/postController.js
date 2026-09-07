@@ -1,4 +1,5 @@
 // controllers/postController.js
+const mongoose = require('mongoose');
 const Post = require('../models/Post');
 
 // =========================
@@ -7,12 +8,15 @@ const Post = require('../models/Post');
 const createPost = async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ success: false, message: 'A photo is required' });
+            return res.status(400).json({ success: false, message: 'A photo or video is required' });
         }
+
+        const isVideo = req.file.mimetype.startsWith('video/');
 
         const post = await Post.create({
             userId: req.user._id,
-            imageUrl: req.file.path,
+            imageUrl: isVideo ? undefined : req.file.path,
+            videoUrl: isVideo ? req.file.path : undefined,
             caption: req.body.caption?.trim() || undefined,
         });
         await post.populate('userId', 'name photos city');
@@ -25,28 +29,51 @@ const createPost = async (req, res) => {
 };
 
 // =========================
-// GET POSTS FEED (paginated, newest first — platform-wide)
+// GET POSTS FEED (cursor-paginated, newest first — platform-wide)
 // =========================
+// Query params:
+//   limit  — page size, defaults to 10
+//   before — a post _id; when present, returns the `limit` posts
+//            immediately older than that post instead of the newest page.
+//
+// Was skip/limit (numeric offset) before — that broke as soon as a new post
+// landed anywhere platform-wide between two page fetches: every post's
+// offset shifts by however many new posts appeared, so the next "page"
+// re-includes whatever had just shifted into that offset window, showing
+// the same post twice. Same cursor-based fix already used for
+// messageController.getMessages, for the identical underlying reason.
 const getPostsFeed = async (req, res) => {
     try {
-        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 10));
+        const { before } = req.query;
 
-        const [posts, total] = await Promise.all([
-            Post.find({})
-                .sort({ createdAt: -1 })
-                .skip((page - 1) * limit)
-                .limit(limit)
-                .populate('userId', 'name photos city')
-                .populate('comments.user', 'name photos'),
-            Post.countDocuments({}),
-        ]);
+        const query = {};
+        if (before) {
+            if (!mongoose.Types.ObjectId.isValid(before)) {
+                return res.status(400).json({ success: false, message: 'Invalid before cursor' });
+            }
+            const cursorPost = await Post.findById(before).select('createdAt');
+            if (cursorPost) {
+                query.createdAt = { $lt: cursorPost.createdAt };
+            }
+        }
+
+        // Fetch one extra to detect hasMore without a separate count query.
+        const page = await Post.find(query)
+            .sort({ createdAt: -1 })
+            .limit(limit + 1)
+            .populate('userId', 'name photos city')
+            .populate('comments.user', 'name photos');
+
+        const hasMore = page.length > limit;
+        const posts = page.slice(0, limit);
 
         const userId = req.user._id.toString();
         const shaped = posts.map((p) => ({
             _id: p._id,
             user: p.userId,
             imageUrl: p.imageUrl,
+            videoUrl: p.videoUrl,
             caption: p.caption,
             createdAt: p.createdAt,
             likeCount: p.likes.length,
@@ -55,13 +82,7 @@ const getPostsFeed = async (req, res) => {
             comments: p.comments,
         }));
 
-        res.status(200).json({
-            success: true,
-            posts: shaped,
-            currentPage: page,
-            totalPages: Math.ceil(total / limit) || 1,
-            hasMore: page * limit < total,
-        });
+        res.status(200).json({ success: true, posts: shaped, hasMore });
     } catch (error) {
         console.error('getPostsFeed error:', error.message);
         res.status(500).json({ success: false, message: error.message });
