@@ -7,7 +7,7 @@ const SocketService = require('../services/socketService');
 const { isConnected } = require('../utils/isConnected');
 const Block = require('../models/Block');
 const ChatClear = require('../models/ChatClear');
-const { recordMessage } = require('../services/chatStreakService');
+const { recordMessage, getStreaksForConversations } = require('../services/chatStreakService');
 
 // Messaging is gated to accepted connections, same rule as calling
 // (socket/socket.js's callUser) — either side being an admin bypasses it,
@@ -520,6 +520,19 @@ const getRecentChats = async (req, res) => {
                 },
             },
         ]);
+
+        // One bulk query for every conversation on this page rather than one
+        // per row — see chatStreakService.js's getStreaksForConversations.
+        // Conversations with no live streak (or none at all) just don't
+        // appear in the returned map, so `undefined` there correctly reads
+        // as "no streak" below.
+        const streaks = await getStreaksForConversations(
+            senderId,
+            recentChats.map((c) => c.user._id),
+        );
+        recentChats.forEach((c) => {
+            c.streak = streaks[c.user._id.toString()] || 0;
+        });
 
         res.status(200).json({
             success: true,

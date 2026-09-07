@@ -86,4 +86,23 @@ async function getStreakInfo(userId, otherUserId) {
     };
 }
 
-module.exports = { recordMessage, getStreakInfo, STREAK_MILESTONES, MESSAGE_MILESTONES };
+// Bulk read for the inbox list (getRecentChats) — one query covering every
+// conversation shown there instead of one query per row. Returns a plain
+// { [otherUserId]: displayStreak } map, only including pairs that actually
+// have a nonzero (still-alive) streak.
+async function getStreaksForConversations(userId, otherUserIds) {
+    const idStr = userId.toString();
+    const pairs = otherUserIds.map((otherId) => orderedPair(idStr, otherId.toString()));
+    if (pairs.length === 0) return {};
+
+    const docs = await ChatStreak.find({ $or: pairs }).select('userA userB streak streakUpdatedDate');
+    const map = {};
+    docs.forEach((doc) => {
+        const otherId = doc.userA === idStr ? doc.userB : doc.userA;
+        const streak = getDisplayStreak(doc);
+        if (streak > 0) map[otherId] = streak;
+    });
+    return map;
+}
+
+module.exports = { recordMessage, getStreakInfo, getStreaksForConversations, STREAK_MILESTONES, MESSAGE_MILESTONES };
