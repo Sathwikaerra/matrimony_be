@@ -9,6 +9,8 @@ const router = express.Router();
 
 const {
     registerUser,
+    sendSignupOtp,
+    verifySignupOtp,
     loginUser,
     forgotPassword,
     resetPassword,
@@ -32,6 +34,12 @@ router.delete('/photos',         protect, deletePhoto);
 router.put   ('/photos/reorder', protect, reorderPhotos);
 
 router.post('/signup', registerUser);
+// Not protect-gated — by definition there's no account yet at signup time.
+// registerUser requires a verified, unexpired PhoneOtp record for the
+// submitted phoneNumber (see authController.js) before it'll create the
+// account.
+router.post('/send-otp', sendSignupOtp);
+router.post('/verify-otp', verifySignupOtp);
 router.post('/login', loginUser);
 // Not protect-gated — by definition the user isn't logged in yet.
 router.post('/forgot-password', forgotPassword);

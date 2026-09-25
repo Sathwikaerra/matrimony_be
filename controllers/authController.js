@@ -9,6 +9,15 @@ const {
 } = require("../services/pushService"); // ← UPDATED
 const { createNotification } = require("../services/notificationStore");
 const { admin: firebaseAdmin } = require("../config/firebaseAdmin");
+const PhoneOtp = require("../models/PhoneOtp");
+const { sendOtpSms } = require("../services/fast2smsService");
+const { generateOtp } = require("../utils/otp");
+
+// OTP timing shared by the signup phone-verification flow (sendSignupOtp/
+// verifySignupOtp/registerUser) below.
+const OTP_TTL_MS = 10 * 60 * 1000; // how long a sent code stays guessable
+const OTP_VERIFIED_WINDOW_MS = 15 * 60 * 1000; // grace period to finish signup after verifying
+const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 
 // =========================
 // SIGNUP USER
@@ -157,9 +166,17 @@ const registerUser = async (req, res) => {
       });
     }
 
-    // TEMPORARY:
-    // Firebase phone verification is bypassed during development.
-    // Mobile app verifies the test OTP 123456 locally.
+    // Real phone verification: this only proceeds for a number that
+    // actually completed the send-otp/verify-otp round trip (see
+    // sendSignupOtp/verifySignupOtp below) within its verified window —
+    // never trusts a client-submitted phoneNumber on its own.
+    const otpRecord = await PhoneOtp.findOne({ phoneNumber });
+    if (!otpRecord || !otpRecord.verified || otpRecord.expiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Please verify your phone number with an OTP before signing up",
+      });
+    }
     const verifiedPhone = phoneNumber;
 
     // Check existing user by email
@@ -203,6 +220,9 @@ const registerUser = async (req, res) => {
       gender, // ← added
     });
 
+    // Single-use — this phone number needs a fresh OTP for any future signup.
+    await PhoneOtp.deleteOne({ phoneNumber });
+
     const token = generateToken(user._id);
 
     SocketService.emitNewUserRegistration(user);
@@ -221,6 +241,122 @@ const registerUser = async (req, res) => {
   } catch (error) {
     console.error("registerUser error:", error);
 
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// =========================
+// SEND SIGNUP OTP
+// =========================
+// Not protect-gated — by definition there's no account yet at this point.
+// Rejects a number that already has an account up front so a signup
+// attempt fails fast with a clear message instead of burning an SMS on a
+// phone number that was always going to be turned away at registerUser.
+const sendSignupOtp = async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required",
+      });
+    }
+
+    const existingUser = await User.findOne({ phoneNumber });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "An account already exists with this phone number — try logging in instead",
+      });
+    }
+
+    const existing = await PhoneOtp.findOne({ phoneNumber });
+    if (existing) {
+      const sinceLastSent = Date.now() - existing.lastSentAt.getTime();
+      if (sinceLastSent < OTP_RESEND_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil((OTP_RESEND_COOLDOWN_MS - sinceLastSent) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${waitSeconds}s before requesting another OTP`,
+        });
+      }
+    }
+
+    const otp = generateOtp();
+    // Sent before the DB write — no point creating OTP state for a code
+    // that was never actually delivered.
+    await sendOtpSms(phoneNumber, otp);
+
+    await PhoneOtp.findOneAndUpdate(
+      { phoneNumber },
+      {
+        phoneNumber,
+        otp,
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+        verified: false,
+        verifiedAt: undefined,
+        lastSentAt: new Date(),
+      },
+      { upsert: true },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent",
+    });
+  } catch (error) {
+    console.error("sendSignupOtp error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP — please try again",
+    });
+  }
+};
+
+// =========================
+// VERIFY SIGNUP OTP
+// =========================
+const verifySignupOtp = async (req, res) => {
+  try {
+    const { phoneNumber, otp } = req.body;
+    if (!phoneNumber || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number and OTP are required",
+      });
+    }
+
+    const record = await PhoneOtp.findOne({ phoneNumber });
+    if (!record || record.expiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "OTP expired or not found — request a new one",
+      });
+    }
+    if (record.otp !== otp.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect OTP",
+      });
+    }
+
+    record.verified = true;
+    record.verifiedAt = new Date();
+    // Extend past the code's own 10-minute guessable window so this stays
+    // valid while the rest of the signup form gets filled in.
+    record.expiresAt = new Date(Date.now() + OTP_VERIFIED_WINDOW_MS);
+    await record.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Phone number verified",
+    });
+  } catch (error) {
+    console.error("verifySignupOtp error:", error);
     return res.status(500).json({
       success: false,
       message: error.message,
@@ -298,12 +434,6 @@ const loginUser = async (req, res) => {
 // =========================
 // FORGOT PASSWORD — request OTP
 // =========================
-// TEMPORARY: sends a fixed dummy OTP instead of an actual SMS/email — same
-// bypass pattern as the signup phone-verification flow above (test OTP
-// 123456). Swap RESET_OTP for a real randomly-generated code + an actual
-// email/SMS dispatch once a provider is wired up; the stored otp/expiry
-// fields on the user doc already support that without any API shape change.
-const RESET_OTP = "654321";
 const RESET_OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 const forgotPassword = async (req, res) => {
@@ -330,13 +460,24 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    user.resetPasswordOtp = RESET_OTP;
+    // Fast2SMS only sends SMS, so the reset code always goes to the
+    // account's phone number — regardless of whether `email` above matched
+    // by email or phone — never to an email address.
+    if (!user.phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "This account has no phone number on file to send an OTP to",
+      });
+    }
+
+    const otp = generateOtp();
+    // Sent before the DB write — no point storing a reset code that was
+    // never actually delivered.
+    await sendOtpSms(user.phoneNumber, otp);
+
+    user.resetPasswordOtp = otp;
     user.resetPasswordExpires = new Date(Date.now() + RESET_OTP_TTL_MS);
     await user.save();
-
-    // TODO: actually send RESET_OTP via SMS/email once a provider is wired
-    // up — for now both frontends just know to enter the fixed test code.
-    console.log(`[forgotPassword] OTP for ${email}: ${RESET_OTP}`);
 
     return res.status(200).json({
       success: true,
@@ -1027,6 +1168,8 @@ const getUserComments = async (req, res) => {
 
 module.exports = {
   registerUser,
+  sendSignupOtp,
+  verifySignupOtp,
   loginUser,
   forgotPassword,
   resetPassword,
