@@ -11,21 +11,52 @@
 //
 // Uses the platform's global `fetch` (Node 18+) rather than adding axios
 // as a new dependency for one API call.
+// const FAST2SMS_URL = "https://www.fast2sms.com/dev/bulkV2";
+
+// async function sendOtpSms(phoneNumber, otp) {
+//   const apiKey = process.env.FAST2SMS_API_KEY;
+//   if (!apiKey) {
+//     throw new Error("FAST2SMS_API_KEY is not configured");
+//   }
+
+//   // Fast2SMS wants a bare 10-digit Indian mobile number, not one prefixed
+//   // with a country code — strip everything down to the last 10 digits.
+//   const digits = (phoneNumber || "").replace(/\D/g, "");
+//   const bareNumber = digits.length >= 10 ? digits.slice(-10) : digits;
+//   if (bareNumber.length !== 10) {
+//     throw new Error(`Not a valid 10-digit Indian phone number: ${phoneNumber}`);
+//   }
+
+//   const response = await fetch(FAST2SMS_URL, {
+//     method: "POST",
+//     headers: {
+//       authorization: apiKey,
+//       "content-type": "application/json",
+//     },
+//     body: JSON.stringify({
+//       variables_values: otp,
+//       route: "q",
+//       numbers: bareNumber,
+//     }),
+//   });
+
+//   const data = await response.json().catch(() => ({}));
+//   if (!response.ok || data.return !== true) {
+//     console.error("[fast2sms] send failed:", data);
+//     throw new Error(data.message || "Failed to send OTP SMS");
+//   }
+//   return data;
+// }
+
+// module.exports = { sendOtpSms };
+
 const FAST2SMS_URL = "https://www.fast2sms.com/dev/bulkV2";
 
-async function sendOtpSms(phoneNumber, otp) {
+async function sendOtpSms(phoneNumber, message) {
   const apiKey = process.env.FAST2SMS_API_KEY;
-  if (!apiKey) {
-    throw new Error("FAST2SMS_API_KEY is not configured");
-  }
 
-  // Fast2SMS wants a bare 10-digit Indian mobile number, not one prefixed
-  // with a country code — strip everything down to the last 10 digits.
-  const digits = (phoneNumber || "").replace(/\D/g, "");
-  const bareNumber = digits.length >= 10 ? digits.slice(-10) : digits;
-  if (bareNumber.length !== 10) {
-    throw new Error(`Not a valid 10-digit Indian phone number: ${phoneNumber}`);
-  }
+  const digits = String(phoneNumber || "").replace(/\D/g, "");
+  const number = digits.slice(-10);
 
   const response = await fetch(FAST2SMS_URL, {
     method: "POST",
@@ -34,17 +65,22 @@ async function sendOtpSms(phoneNumber, otp) {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      variables_values: otp,
-      route: "otp",
-      numbers: bareNumber,
+      route: "q",
+      message,
+      language: "english",
+      flash: 0,
+      numbers: number,
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json();
+
+  console.log("[fast2sms]", data);
+
   if (!response.ok || data.return !== true) {
-    console.error("[fast2sms] send failed:", data);
-    throw new Error(data.message || "Failed to send OTP SMS");
+    throw new Error(data.message || "Failed to send SMS");
   }
+
   return data;
 }
 
