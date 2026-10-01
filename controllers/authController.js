@@ -810,6 +810,20 @@ const getProfile = async (req, res) => {
       profileObj.about = survey.about;
     }
 
+    // Real, survey-aware match score — same calculateMatchScore used by
+    // getAllUsers, scored against the actual logged-in viewer. Without
+    // this, profileObj had no `matchScore` at all, so the mobile/web
+    // profile screen's `p.matchScore || calculateMatchScore(currentUser, p)`
+    // always fell through to the *client-side* @matrimony/utils fallback —
+    // a different, much more lenient algorithm that's floored at 78% (and
+    // returns a deterministic 84-96% "fallback" when survey data is
+    // sparse), so the same person could show a real, low score on the
+    // match-discovery feed and an inflated one on their own profile.
+    if (req.user && req.user._id.toString() !== profileId) {
+      const viewerSurvey = await Survey.findOne({ user: req.user._id }).lean();
+      profileObj.matchScore = calculateMatchScore(req.user, viewerSurvey, profile, survey);
+    }
+
     // ── Push notification: tell owner their profile was viewed ──────
     // Only fires when a logged-in user views someone else's profile.
     //
