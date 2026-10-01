@@ -19,13 +19,14 @@ const OTP_TTL_MS = 10 * 60 * 1000; // how long a sent code stays guessable
 const OTP_VERIFIED_WINDOW_MS = 15 * 60 * 1000; // grace period to finish signup after verifying
 const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 
-// DUMMY OTP MODE — rolled back to this (from real Fast2SMS sends) because
-// FAST2SMS_API_KEY isn't set up yet, which was making every OTP request
-// fail outright. While it's unset, signup/forgot-password use a fixed
-// code instead of actually texting one — same bypass this app used before
-// Fast2SMS was wired in. Flips back to real SMS automatically the moment
-// FAST2SMS_API_KEY is set in the environment — no code change needed.
-const OTP_DUMMY_MODE = !process.env.FAST2SMS_API_KEY;
+// DUMMY OTP MODE — an explicit override, not tied to whether
+// FAST2SMS_API_KEY happens to be set. Signup/forgot-password use a fixed
+// code instead of actually texting one, same bypass this app used before
+// Fast2SMS was wired in. Flip this one line back to `false` whenever real
+// SMS sending should resume — do NOT make this conditional on the API key
+// again, since a key can be present in .env (kept there for later) without
+// actually being ready to use yet.
+const OTP_DUMMY_MODE = true;
 const DUMMY_SIGNUP_OTP = "123456";
 const DUMMY_RESET_OTP = "654321";
 
