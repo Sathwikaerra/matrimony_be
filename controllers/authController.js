@@ -19,6 +19,16 @@ const OTP_TTL_MS = 10 * 60 * 1000; // how long a sent code stays guessable
 const OTP_VERIFIED_WINDOW_MS = 15 * 60 * 1000; // grace period to finish signup after verifying
 const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 
+// DUMMY OTP MODE — rolled back to this (from real Fast2SMS sends) because
+// FAST2SMS_API_KEY isn't set up yet, which was making every OTP request
+// fail outright. While it's unset, signup/forgot-password use a fixed
+// code instead of actually texting one — same bypass this app used before
+// Fast2SMS was wired in. Flips back to real SMS automatically the moment
+// FAST2SMS_API_KEY is set in the environment — no code change needed.
+const OTP_DUMMY_MODE = !process.env.FAST2SMS_API_KEY;
+const DUMMY_SIGNUP_OTP = "123456";
+const DUMMY_RESET_OTP = "654321";
+
 // =========================
 // SIGNUP USER
 // =========================
@@ -286,10 +296,14 @@ const sendSignupOtp = async (req, res) => {
       }
     }
 
-    const otp = generateOtp();
-    // Sent before the DB write — no point creating OTP state for a code
-    // that was never actually delivered.
-    await sendOtpSms(phoneNumber, otp);
+    const otp = OTP_DUMMY_MODE ? DUMMY_SIGNUP_OTP : generateOtp();
+    if (OTP_DUMMY_MODE) {
+      console.warn(`[OTP DUMMY MODE] signup OTP for ${phoneNumber}: ${otp} (not actually texted — set FAST2SMS_API_KEY to send real SMS)`);
+    } else {
+      // Sent before the DB write — no point creating OTP state for a code
+      // that was never actually delivered.
+      await sendOtpSms(phoneNumber, otp);
+    }
 
     await PhoneOtp.findOneAndUpdate(
       { phoneNumber },
@@ -470,10 +484,14 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    const otp = generateOtp();
-    // Sent before the DB write — no point storing a reset code that was
-    // never actually delivered.
-    await sendOtpSms(user.phoneNumber, otp);
+    const otp = OTP_DUMMY_MODE ? DUMMY_RESET_OTP : generateOtp();
+    if (OTP_DUMMY_MODE) {
+      console.warn(`[OTP DUMMY MODE] password-reset OTP for ${user.phoneNumber}: ${otp} (not actually texted — set FAST2SMS_API_KEY to send real SMS)`);
+    } else {
+      // Sent before the DB write — no point storing a reset code that was
+      // never actually delivered.
+      await sendOtpSms(user.phoneNumber, otp);
+    }
 
     user.resetPasswordOtp = otp;
     user.resetPasswordExpires = new Date(Date.now() + RESET_OTP_TTL_MS);
