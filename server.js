@@ -18,6 +18,9 @@ const chatRoutes = require('./routes/chatRoutes');
 const lockerRoutes = require('./routes/lockerRoutes');
 const surveyRoutes = require('./routes/surveyRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
+const homePosterRoutes = require('./routes/homePosterRoutes');
+const theatreRoutes = require('./routes/theatreRoutes');
+const movieRoutes = require('./routes/movieRoutes');
 const { startHighlightPromotion } = require('./utils/storyHighlights');
 
 connectDB();
@@ -46,6 +49,9 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/locker', lockerRoutes);
 app.use('/api/survey', surveyRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/home-posters', homePosterRoutes);
+app.use('/api/theatre', theatreRoutes);
+app.use('/api/movies', movieRoutes);
 
 
 // =========================

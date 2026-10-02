@@ -135,4 +135,61 @@ const uploadAnnouncementImage = multer({
     limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadPostImage, uploadWallpaperImage, uploadLockerDocument, uploadAnnouncementImage };
+// Home screen hero-carousel poster images — image-only (no video slot
+// needed here, unlike announcements), same size budget as the other
+// image-only uploaders below.
+const homePosterStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/home_posters',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    },
+});
+
+const uploadHomePosterImage = multer({
+    storage: homePosterStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// ── Theatre (temporary media shared live between two connected users) ───────
+// Deleted again when the session ends (see theatreController.destroyTheatreMedia).
+// Size cap defaults to 100MB — Cloudinary's free-plan video limit — and can be
+// raised with THEATRE_MAX_MB once the account's plan allows bigger uploads.
+const theatreStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+        folder:          'vivaah/theatre',
+        resource_type:   'auto',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov', 'webm'],
+    },
+});
+
+const uploadTheatreMedia = multer({
+    storage: theatreStorage,
+    limits: { fileSize: (parseInt(process.env.THEATRE_MAX_MB, 10) || 100) * 1024 * 1024 },
+});
+
+// ── Movie library (admin-uploaded, permanent) ───────────────────────────────
+// One request carries a poster image and the movie video, so params is a
+// function that picks resource_type per field. Size cap follows the same
+// Cloudinary-plan reasoning as theatre uploads: THEATRE_MOVIE_MAX_MB, default 100.
+const movieStorage = new CloudinaryStorage({
+    cloudinary,
+    params: (req, file) => ({
+        folder:        'vivaah/movies',
+        resource_type: file.fieldname === 'video' ? 'video' : 'image',
+    }),
+});
+
+const uploadMovieFiles = multer({
+    storage: movieStorage,
+    limits: { fileSize: (parseInt(process.env.THEATRE_MOVIE_MAX_MB, 10) || 100) * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const ok = file.fieldname === 'video'
+            ? file.mimetype.startsWith('video/')
+            : file.mimetype.startsWith('image/');
+        cb(ok ? null : new Error(`Invalid ${file.fieldname} file type`), ok);
+    },
+});
+
+module.exports = { cloudinary, upload, uploadChatMedia, uploadStoryMedia, uploadPostImage, uploadWallpaperImage, uploadLockerDocument, uploadAnnouncementImage, uploadHomePosterImage, uploadTheatreMedia, uploadMovieFiles };

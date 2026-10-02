@@ -7,6 +7,7 @@ const User = require("../models/User");
 const CallLog = require("../models/CallLog");
 const Block = require("../models/Block");
 const { notifyIncomingCall, notifyMissedCall } = require("../services/pushService");
+const { destroyTheatreMedia } = require("../controllers/theatreController");
 
 let io;
 
@@ -114,6 +115,35 @@ function clearGameFor(userId) {
   delete activeGames[uid];
   delete activeGames[entry.opponent];
   return entry.opponent;
+}
+
+// ─────────────────────────────────────────────
+// Theatre — two connected users watch one uploaded photo/video together.
+// Same relay shape as the games above: the server only gates who may talk to
+// whom and forwards play/pause/seek; the media itself lives on Cloudinary
+// (see theatreController) and is deleted when the session ends.
+// userId -> { peer, media } on BOTH users once an invite is accepted.
+const activeTheatres = {};
+// invitee's userId -> { from, media } — one unanswered invite per invitee.
+const pendingTheatreInvites = {};
+
+function isActiveTheatrePair(userA, userB) {
+  const a = userA?.toString();
+  const b = userB?.toString();
+  if (!a || !b) return false;
+  return activeTheatres[a]?.peer === b && activeTheatres[b]?.peer === a;
+}
+
+// Clears the session for both sides and deletes its uploaded media.
+// Returns the other participant's id (or null if there was no session).
+function clearTheatreFor(userId) {
+  const uid = userId?.toString();
+  const entry = uid && activeTheatres[uid];
+  if (!entry) return null;
+  delete activeTheatres[uid];
+  delete activeTheatres[entry.peer];
+  destroyTheatreMedia(entry.media);
+  return entry.peer;
 }
 
 const getOnlineUsers = () => Object.keys(userSocketMap);
@@ -693,6 +723,125 @@ const initSocket = (httpServer) => {
     });
 
     // ─────────────────────────────────────────────
+    // Theatre — invite / accept / decline / control / end
+    // ─────────────────────────────────────────────
+    socket.on("theatreInvite", async ({ to, media }) => {
+      try {
+        const from = socket.userId;
+        if (!from) {
+          socket.emit("theatreUnauthorized", { reason: "Not authenticated — try reloading the app" });
+          return;
+        }
+        if (!to || !media?.url || !media?.publicId) return;
+
+        const [blockedByMe, blockedByThem] = await Promise.all([
+          Block.exists({ blocker: from, blocked: to }),
+          Block.exists({ blocker: to, blocked: from }),
+        ]);
+        if (blockedByMe || blockedByThem) {
+          socket.emit("theatreUnauthorized", {
+            reason: blockedByMe ? "You have blocked this user" : "You are blocked by this user",
+          });
+          destroyTheatreMedia(media);
+          return;
+        }
+
+        const [fromUser, toUser] = await Promise.all([
+          User.findById(from).select("role name photos"),
+          User.findById(to).select("role"),
+        ]);
+        const eitherIsAdmin = fromUser?.role === "admin" || toUser?.role === "admin";
+        const allowed = eitherIsAdmin || (await isConnected(from, to));
+        if (!allowed) {
+          socket.emit("theatreUnauthorized", { reason: "Not connected with this user" });
+          destroyTheatreMedia(media);
+          return;
+        }
+
+        if (activeTheatres[from] || activeTheatres[to] || pendingTheatreInvites[to]) {
+          socket.emit("theatreUnauthorized", { reason: "That user is busy with another Theatre session" });
+          destroyTheatreMedia(media);
+          return;
+        }
+
+        pendingTheatreInvites[to] = { from, media };
+        io.to(to.toString()).emit("theatreInvite", {
+          from,
+          media,
+          fromName: fromUser?.name || "Someone",
+          fromPhoto: fromUser?.photos?.[0] || null,
+        });
+      } catch (err) {
+        console.log("❌ theatreInvite error:", err.message);
+      }
+    });
+
+    socket.on("theatreAccepted", ({ to }) => {
+      try {
+        const from = socket.userId;
+        if (!from || !to) return;
+        const invite = pendingTheatreInvites[from];
+        if (!invite || invite.from !== to.toString()) return;
+        delete pendingTheatreInvites[from];
+
+        activeTheatres[from] = { peer: to.toString(), media: invite.media };
+        activeTheatres[to.toString()] = { peer: from, media: invite.media };
+        io.to(to.toString()).emit("theatreAccepted", { from });
+      } catch (err) {
+        console.log("❌ theatreAccepted error:", err.message);
+      }
+    });
+
+    socket.on("theatreDeclined", ({ to }) => {
+      try {
+        const from = socket.userId;
+        if (!from || !to) return;
+        const invite = pendingTheatreInvites[from];
+        if (invite?.from === to.toString()) {
+          delete pendingTheatreInvites[from];
+          destroyTheatreMedia(invite.media);
+        }
+        io.to(to.toString()).emit("theatreDeclined", { from });
+      } catch (err) {
+        console.log("❌ theatreDeclined error:", err.message);
+      }
+    });
+
+    socket.on("theatreControl", ({ to, action, position }) => {
+      try {
+        if (!to || !["play", "pause", "seek"].includes(action)) return;
+        if (!isActiveTheatrePair(socket.userId, to)) return;
+        io.to(to.toString()).emit("theatreControl", {
+          from: socket.userId,
+          action,
+          position: Number(position) || 0,
+        });
+      } catch (err) {
+        console.log("❌ theatreControl error:", err.message);
+      }
+    });
+
+    socket.on("theatreEnded", ({ to }) => {
+      try {
+        if (!to) return;
+        const from = socket.userId;
+        // Host cancelling before the invitee answered.
+        const pending = pendingTheatreInvites[to.toString()];
+        if (pending?.from === from) {
+          delete pendingTheatreInvites[to.toString()];
+          destroyTheatreMedia(pending.media);
+          io.to(to.toString()).emit("theatreEnded", { from });
+          return;
+        }
+        if (!isActiveTheatrePair(from, to)) return;
+        clearTheatreFor(from);
+        io.to(to.toString()).emit("theatreEnded", { from });
+      } catch (err) {
+        console.log("❌ theatreEnded error:", err.message);
+      }
+    });
+
+    // ─────────────────────────────────────────────
     // Disconnect
     // ─────────────────────────────────────────────
     socket.on("disconnect", (reason) => {
@@ -754,6 +903,24 @@ const initSocket = (httpServer) => {
           }
         });
         delete pendingGameInvites[userId];
+
+        // Theatre: same cleanup — end any live session (deleting its media)
+        // and drop any invite this user sent or was holding.
+        const theatrePeer = clearTheatreFor(userId);
+        if (theatrePeer) io.to(theatrePeer).emit("theatreEnded", { from: userId });
+        Object.keys(pendingTheatreInvites).forEach((invitee) => {
+          if (pendingTheatreInvites[invitee].from === userId) {
+            destroyTheatreMedia(pendingTheatreInvites[invitee].media);
+            delete pendingTheatreInvites[invitee];
+            io.to(invitee).emit("theatreEnded", { from: userId });
+          }
+        });
+        if (pendingTheatreInvites[userId]) {
+          const held = pendingTheatreInvites[userId];
+          destroyTheatreMedia(held.media);
+          delete pendingTheatreInvites[userId];
+          io.to(held.from.toString()).emit("theatreDeclined", { from: userId });
+        }
 
         // Record when they were last online, for the chat header's
         // "Last seen …" line. Fire-and-forget — nothing downstream needs to
