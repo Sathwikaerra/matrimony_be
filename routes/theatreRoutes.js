@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const { uploadTheatreMedia } = require('../config/cloudinary');
-const { uploadMedia } = require('../controllers/theatreController');
+const { uploadMedia, streamLive } = require('../controllers/theatreController');
 
 const handleUpload = (req, res, next) => {
     uploadTheatreMedia.single('media')(req, res, (err) => {
@@ -19,5 +19,6 @@ const handleUpload = (req, res, next) => {
 };
 
 router.post('/upload', protect, handleUpload, uploadMedia);
+router.get('/stream/:hostId', protect, streamLive);
 
 module.exports = router;

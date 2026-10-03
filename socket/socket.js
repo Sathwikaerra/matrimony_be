@@ -8,6 +8,7 @@ const CallLog = require("../models/CallLog");
 const Block = require("../models/Block");
 const { notifyIncomingCall, notifyMissedCall } = require("../services/pushService");
 const { destroyTheatreMedia } = require("../controllers/theatreController");
+const theatreLive = require("../services/theatreLive");
 
 let io;
 
@@ -169,6 +170,9 @@ const initSocket = (httpServer) => {
 
     // ✅ Important for Android/mobile browsers
     transports: ["websocket", "polling"],
+
+    // Theatre live streaming acks carry ~350KB base64 movie slices.
+    maxHttpBufferSize: 2e6,
   });
 
   // Authenticate the connection itself with the same JWT already used for
@@ -732,7 +736,22 @@ const initSocket = (httpServer) => {
           socket.emit("theatreUnauthorized", { reason: "Not authenticated — try reloading the app" });
           return;
         }
-        if (!to || !media?.url || !media?.publicId) return;
+        if (!to || !media) return;
+        if (media.live) {
+          // Phone-to-phone source: only trust the size/mime, and key the relay
+          // by the host's own id (never a client-chosen one).
+          const size = Number(media.size);
+          if (!Number.isFinite(size) || size <= 0) return;
+          media = {
+            type: "video",
+            live: true,
+            size,
+            mime: String(media.mime || "").startsWith("video/") ? media.mime : "video/mp4",
+            sessionId: from.toString(),
+          };
+        } else if (!media.url || !media.publicId) {
+          return;
+        }
 
         const [blockedByMe, blockedByThem] = await Promise.all([
           Block.exists({ blocker: from, blocked: to }),
@@ -764,6 +783,7 @@ const initSocket = (httpServer) => {
           return;
         }
 
+        if (media.live) theatreLive.register(from, media);
         pendingTheatreInvites[to] = { from, media };
         io.to(to.toString()).emit("theatreInvite", {
           from,
@@ -786,6 +806,7 @@ const initSocket = (httpServer) => {
 
         activeTheatres[from] = { peer: to.toString(), media: invite.media };
         activeTheatres[to.toString()] = { peer: from, media: invite.media };
+        if (invite.media?.live) theatreLive.setViewer(to, from);
         io.to(to.toString()).emit("theatreAccepted", { from });
       } catch (err) {
         console.log("❌ theatreAccepted error:", err.message);
@@ -809,7 +830,7 @@ const initSocket = (httpServer) => {
 
     socket.on("theatreControl", ({ to, action, position }) => {
       try {
-        if (!to || !["play", "pause", "seek"].includes(action)) return;
+        if (!to || !["play", "pause", "seek", "buffering", "ready"].includes(action)) return;
         if (!isActiveTheatrePair(socket.userId, to)) return;
         io.to(to.toString()).emit("theatreControl", {
           from: socket.userId,
